@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>智能投标工作平台 · 冶金焦化 B2B 投标响应系统</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <!-- 动态玻璃背景光晕 -->
+  <div class="bg-orbs" aria-hidden="true">
+    <span class="orb o1"></span>
+    <span class="orb o2"></span>
+    <span class="orb o3"></span>
+    <span class="orb o4"></span>
+    <div class="bg-grid"></div>
+  </div>
+
+  <div id="app">
+    <!-- 侧边栏（毛玻璃） -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">标</div>
+        <div class="brand-text">
+          <div class="brand-title">智能投标工作平台</div>
+          <div class="brand-sub">冶金焦化 · B2B 投标响应</div>
+        </div>
+      </div>
+      <nav class="nav" id="nav">
+        <button class="nav-item active" data-view="dashboard"><span class="nav-ico">◆</span>工作台</button>
+        <button class="nav-item" data-view="plan"><span class="nav-ico">✎</span>AI 方案</button>
+        <button class="nav-item" data-view="bid"><span class="nav-ico">▣</span>AI 标书</button>
+        <button class="nav-item" data-view="quote"><span class="nav-ico">¥</span>AI 报价</button>
+        <button class="nav-item" data-view="qc"><span class="nav-ico">✔</span>AI 质检</button>
+        <button class="nav-item" data-view="dup"><span class="nav-ico">⊞</span>方案查重</button>
+        <button class="nav-item" data-view="lib"><span class="nav-ico">▤</span>企业素材库</button>
+        <button class="nav-item" data-view="settings"><span class="nav-ico">⚙</span>设置</button>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="hint">离线可用 · 数据本地保存 · 纯前端</div>
+        <button class="btn-ghost" id="btn-theme">切换主题</button>
+      </div>
+    </aside>
+
+    <!-- 主区 -->
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-title" id="view-title">工作台</div>
+        <div class="topbar-actions">
+          <span class="ai-status" id="ai-status">AI：未配置</span>
+          <button class="btn-primary" id="btn-new-project">+ 新建投标项目</button>
+        </div>
+      </header>
+      <section class="view" id="view"><!-- 动态渲染 --></section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <!-- 通用弹窗（毛玻璃） -->
+  <div id="modal-overlay" class="modal-overlay">
+    <div id="modal-box" class="modal">
+      <div class="modal-title" id="modal-title"></div>
+      <div class="modal-sub" id="modal-sub"></div>
+      <input id="modal-input" />
+      <div class="modal-foot">
+        <button class="btn-ghost btn-sm" id="modal-cancel">取消</button>
+        <button class="btn-primary btn-sm" id="modal-ok">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 本地 PDF 解析引擎（离线） -->
+  <script src="js/lib/pdf.min.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/pdfparse.js"></script>
+  <script src="js/word-export.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
