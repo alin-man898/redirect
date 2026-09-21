@@ -1,0 +1,827 @@
+/* ui.js —— 各模块渲染与交互 */
+(function () {
+  "use strict";
+  var SYD = window.SYD, S = SYD.store, U = SYD.util, D = SYD.domain;
+  var view = document.getElementById("view");
+  var cur = { pid: null };
+
+  function setView(t) { document.getElementById("view-title").textContent = t; }
+  function save() { S.save(); }
+  function projects() { return S.get().projects; }
+  function curProject() { return projects().filter(function (p) { return p.id === cur.pid; })[0]; }
+  function on(sel, ev, fn) { var e = view.querySelector(sel); if (e) e.addEventListener(ev, fn); }
+  function onAll(sel, ev, fn) { view.querySelectorAll(sel).forEach(function (e) { e.addEventListener(ev, fn); }); }
+  function esc(s) { return U.escapeHtml(s); }
+
+  // ---------- 通用弹窗（替代原生 prompt/confirm，兼容预览环境） ----------
+  function modal(opts) {
+    opts = opts || {};
+    var ov = document.getElementById("modal-overlay");
+    if (!ov) return;
+    document.getElementById("modal-title").textContent = opts.title || "";
+    document.getElementById("modal-sub").textContent = opts.sub || "";
+    var input = document.getElementById("modal-input");
+    var okBtn = document.getElementById("modal-ok");
+    var cancelBtn = document.getElementById("modal-cancel");
+    if (opts.input === false) { input.classList.add("hidden"); }
+    else { input.classList.remove("hidden"); input.value = opts.value != null ? opts.value : ""; }
+    okBtn.textContent = opts.okText || "确定";
+    cancelBtn.textContent = opts.cancelText || "取消";
+    ov.classList.add("show");
+    function close() { ov.classList.remove("show"); }
+    okBtn.onclick = function () { var v = input.value; close(); if (opts.onOk) opts.onOk(v); };
+    cancelBtn.onclick = function () { close(); if (opts.onCancel) opts.onCancel(); };
+    ov.onclick = function (e) { if (e.target === ov) close(); };
+    setTimeout(function () { try { input.focus(); if (opts.input !== false) input.select(); } catch (e) {} }, 30);
+  }
+  function confirmModal(opts) {
+    modal({ title: opts.title, sub: opts.sub, input: false, okText: opts.okText || "确认", cancelText: "取消", onOk: opts.onOk, onCancel: opts.onCancel });
+  }
+
+  // 图库视觉理解结果 → 文本上下文（用于融入技术标）
+  function imageContextText() {
+    var imgs = (S.get().materials.images) || [];
+    var understood = imgs.filter(function (im) { return im.desc && im.desc.trim(); });
+    if (!understood.length) return "";
+    return "【参考图库素材（已视觉理解）】\n" + understood.map(function (im) {
+      return "· " + (im.desc || im.name) + (im.tags && im.tags.length ? "（标签：" + im.tags.join("、") + "）" : "");
+    }).join("\n");
+  }
+
+  function newProject(name) {
+    return {
+      id: U.uid(), name: name || "未命名投标项目", buyer: "", projectDesc: "", deadline: "", budget: "", scoreRule: "",
+      rawText: "", basics: null, mode: "quick", chapters: [], length: "中", generated: false,
+      qc: { items: [], versions: [] }, quote: null, status: "草稿", updated: U.fmtDate(),
+      darkLabel: !!(S.get().settings && S.get().settings.defaultDarkLabel), feedImg: true
+    };
+  }
+  function ensureChapters(p) {
+    if (!p.chapters || !p.chapters.length) {
+      p.chapters = D.planChapters.map(function (c) { return { name: c.name, tip: c.tip, length: p.length || "中", content: "" }; });
+    }
+    return p.chapters;
+  }
+
+  // ---------- 离线方案生成（工业产品类模板） ----------
+  function offlineChapter(p, ch, imgCtx) {
+    var b = p.basics || {};
+    var kb = S.get().materials.knowledge || [];
+    var buyer = b.buyer || p.buyer || "招标方";
+    var proj = b.project || p.projectDesc || "本次采购项目";
+    var kbhit = kb.filter(function (d) { return (d.text + d.title).indexOf(ch.name.slice(0, 4)) >= 0; }).slice(0, 1);
+    var lead = "";
+    if (kbhit.length) lead = "结合企业知识库《" + kbhit[0].title + "》的要点，";
+    var len = ch.length || "中";
+    var para = {
+      "项目理解与需求分析": "针对" + buyer + "《" + proj + "》的需求，我方深入理解了项目工况、产能目标与核心技术痛点。本项目属于冶金焦化行业工业产品类采购，需重点关注设备稳定性、检测精度与交付周期。",
+      "产品总体技术方案": lead + "本方案提供成套工业设备与技术路线：以模块化设计为基础，集成自动控温、数据采集与安全防护，确保长期连续运行可靠。核心部件选用成熟工业级器件，满足焦化现场高温、粉尘环境要求。",
+      "关键技术参数与响应表": "下表逐条响应招标文件技术要求。凡优于招标要求的指标标注“正偏离”，等同标注“无偏离”，并附检测依据。具体参数见“技术偏离表”附表。",
+      "执行标准与质量保障": "设备研制与验收严格依据国家标准：" + D.standards.slice(0, 4).join("；") + " 等。出厂前进行空载与负载联调，附第三方或厂内检测报告，质量追溯至每台设备。",
+      "供货范围与进度计划": "供货范围涵盖主机、辅机、控制软件及备品备件。合同签订后按“设计—采购—生产—调试—验收”节点排产，详见“工期安排”附表，确保按期交货。",
+      "安装调试与验收方案": "到货后由厂家工程师现场指导安装与管线对接，完成单机与联动调试，依据技术协议进行性能验收，签署验收单并移交全套技术资料。",
+      "操作培训与技术交底": "验收前为招标方操作与维护人员提供系统培训，内容包括原理、操作、日常维护与常见故障处理，并提交培训签到与教材。",
+      "售后服务与质保体系": "提供质保期内的免费维修与终身技术支持，承诺接到报修后快速响应。建立专属客户档案，定期回访，保障备品备件长期供应。"
+    };
+    var base = para[ch.name] || (lead + "围绕《" + ch.name + "》，我方结合项目实际与同类业绩，提供完整、可落地的方案内容，确保充分响应评分要求。");
+    if (ch.name === "产品总体技术方案" && imgCtx) {
+      base += "\n\n（已结合企业图库视觉理解素材呼应设备外观与结构：" + imgCtx.replace(/\n+/g, "；") + "）";
+    }
+    var more = len === "长" ? "\n\n补充：进一步细化实施细节、风险预案与典型案例，增强方案厚度与技术说服力。" :
+      len === "短" ? "" : "\n\n补充：给出关键实施步骤与责任界面，便于招标方评估可执行性。";
+    return base + more;
+  }
+
+  async function generatePlan(p, useAI) {
+    ensureChapters(p);
+    var imgCtx = (p.feedImg !== false) ? imageContextText() : "";
+    for (var i = 0; i < p.chapters.length; i++) {
+      var ch = p.chapters[i];
+      if (useAI && SYD.ai.ready()) {
+        try {
+          var sys = "你是冶金焦化行业工业设备投标专家，擅长写技术标。只输出该章节正文，不重复章节标题。";
+          var usr = "投标项目：" + (p.basics ? p.basics.project : p.projectDesc) + "；招标方：" + (p.basics ? p.basics.buyer : p.buyer) +
+            "；请撰写方案章节《" + ch.name + "》，篇幅：" + (ch.length || "中") + "。结合工业产品类设备特点。" +
+            (imgCtx ? "\n\n参考图库视觉理解素材（用于呼应设备外观/结构，可恰当引用）：\n" + imgCtx : "");
+          ch.content = await SYD.ai.chat(sys, usr, { temperature: 0.7 });
+        } catch (e) { ch.content = offlineChapter(p, ch, imgCtx) + "\n\n（AI 调用失败，已用离线模板：" + e.message + "）"; }
+      } else {
+        ch.content = offlineChapter(p, ch, imgCtx);
+      }
+    }
+    p.generated = true; p.updated = U.fmtDate(); save();
+  }
+
+  function chaptersToDoc(p) {
+    var html = "<h1 style='text-align:center'>" + esc(p.name) + " · 技术方案</h1>";
+    ensureChapters(p).forEach(function (c, i) {
+      html += "<h2>" + (i + 1) + ". " + esc(c.name) + "</h2><p>" + esc(c.content || "（未生成）") + "</p>";
+    });
+    return html;
+  }
+
+  // ================= 工作台 =================
+  function renderDashboard() {
+    setView("工作台");
+    var ps = projects();
+    var mats = S.get().materials;
+    var pendingQC = ps.filter(function (p) { return p.qc && p.qc.items && p.qc.items.length && p.qc.items.some(function (i) { return !i.status; }); }).length;
+    var gen = ps.filter(function (p) { return p.generated; }).length;
+    var quoted = ps.filter(function (p) { return p.quote && p.quote.decided; }).length;
+    var html = "";
+    html += "<div class='grid grid-4'>";
+    html += stat(ps.length, "投标项目");
+    html += stat(gen, "已生成方案");
+    html += stat(quoted, "已审定报价");
+    html += stat(pendingQC, "待完成质检");
+    html += "</div>";
+
+    html += "<div class='card'><div class='section-title'>最近投标项目</div><div class='section-sub'>点击进入 AI 方案模块继续编辑</div>";
+    if (!ps.length) html += "<div class='empty'>暂无项目，点击右上角“新建投标项目”开始</div>";
+    else {
+      html += "<div class='list'>";
+      ps.slice().reverse().forEach(function (p) {
+        html += "<div class='item' data-open='" + p.id + "'><div><div style='font-weight:600'>" + esc(p.name) + "</div><div class='muted' style='font-size:12px'>" +
+          (p.basics && p.basics.buyer ? "招标方：" + esc(p.basics.buyer) + " · " : "") + "更新 " + esc(p.updated) + " · " + (p.generated ? "已生成" : "草稿") + "</div></div>" +
+          "<span class='tag " + (p.generated ? "ok" : "gray") + "'>进入</span></div>";
+      });
+      html += "</div>";
+    }
+    html += "</div>";
+
+    // 模块导航（玻璃卡）
+    html += "<div class='card'><div class='section-title'>平台能力总览</div><div class='section-sub'>借鉴“小晓AI标书”全部核心能力，面向冶金焦化 B2B 投标重构 · 点击卡片直达模块</div>";
+    html += "<div class='module-grid'>";
+    var mods = [
+      ["✎", "AI 方案", "三种模式（快速/快捷评分/定制）+ 工业产品类项目规划 + 目录生成 + 批量成稿", "plan"],
+      ["▣", "AI 标书", "招标解读 / 技术标创作 / 商务标一键填空（结合企业资料库）", "bid"],
+      ["¥", "AI 报价", "成本测算 → AI 建议报价 → 用户审定填入 → 贯通商务标与导出", "quote"],
+      ["✔", "AI 质检", "招标文件解析→质检项抽取→多版本对比→自定义配置，可视化报告", "qc"],
+      ["⊞", "方案查重", "文本语义相似度比对，规避串标风险", "dup"],
+      ["▤", "企业素材库", "知识库(RAG) / 私人图库(视觉理解) / 企业资料库（填空底座）", "lib"]
+    ];
+    mods.forEach(function (m) { html += "<div class='mod-card' data-go='" + m[3] + "'><div class='mod-ico'>" + m[0] + "</div><div class='mod-title'>" + m[1] + "</div><div class='mod-desc'>" + m[2] + "</div></div>"; });
+    html += "</div></div>";
+    view.innerHTML = html;
+    onAll("[data-open]", "click", function (e) { cur.pid = e.currentTarget.getAttribute("data-open"); SYD.ui.render("plan"); });
+    onAll("[data-go]", "click", function (e) { var v = e.currentTarget.getAttribute("data-go"); document.querySelectorAll(".nav-item").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-view") === v); }); SYD.ui.render(v); });
+  }
+  function stat(n, l) { return "<div class='stat'><div class='num'>" + n + "</div><div class='lab'>" + l + "</div></div>"; }
+
+  // ================= AI 方案 =================
+  function renderPlan() {
+    setView("AI 方案");
+    var ps = projects();
+    if (!ps.length) { view.innerHTML = emptyCard("AI 方案", "请先在右上角新建投标项目"); return; }
+    var p = curProject() || ps[0]; cur.pid = p.id;
+
+    var steps = ["新建项目", "上传招标文件", "选择模式", "智能提取信息", "生成项目规划", "生成目录", "目录预览", "选择篇幅", "批量生成", "导出"];
+    var html = "<div class='grid' style='grid-template-columns:240px 1fr'>";
+    // 左：项目列表
+    html += "<div><div class='card' style='margin-bottom:12px'><div class='section-title' style='font-size:13px'>项目</div>";
+    ps.forEach(function (x) {
+      html += "<div class='item' data-pick='" + x.id + "' style='" + (x.id === p.id ? "border-color:var(--primary)" : "") + "'><div style='font-size:13px'>" + esc(x.name) + "</div>" +
+        "<span class='tag " + (x.generated ? "ok" : "gray") + "'>" + (x.generated ? "已生成" : "草稿") + "</span></div>";
+    });
+    html += "</div></div>";
+
+    // 右：工作流
+    html += "<div>";
+    html += "<div class='steps'>";
+    steps.forEach(function (s, i) {
+      var cls = "step";
+      if (i === 0) cls += " done";
+      if (p.rawText && i === 1) cls += " done";
+      if (p.basics && i === 3) cls += " done";
+      if (p.generated && (i === 5 || i === 8)) cls += " done";
+      html += "<div class='" + cls + "'><span class='snum'>" + (i + 1) + "</span>" + s + "</div>";
+    });
+    html += "</div>";
+
+    html += "<div class='card'>";
+    html += "<div class='section-title'>① 项目与招标文件</div>";
+    html += "<label>项目名称</label><input id='f-name' value='" + esc(p.name) + "'/>";
+    html += "<label>招标文件原文（粘贴，或上传 .pdf / .txt / .md）</label>";
+    html += "<textarea id='f-raw' rows='7' placeholder='将招标文件全文粘贴此处，或上传 PDF 由本地 pdf.js 真实解析，用于智能提取招标方、项目、预算、资质、标准、评分办法…'>" + esc(p.rawText) + "</textarea>";
+    html += "<div class='toolbar'><input type='file' id='f-file' accept='.pdf,.txt,.md' style='width:auto'/><button class='btn-ghost btn-sm' id='b-extract'>智能提取基础信息</button><span class='muted' id='extract-tip' style='font-size:12px'></span></div>";
+
+    html += "<label>撰写模式</label><div class='row wrap'>";
+    [["quick", "快速编写"], ["score", "快捷评分"], ["custom", "定制评分"]].forEach(function (m) {
+      html += "<label class='pill'><input type='radio' name='mode' value='" + m[0] + "' " + (p.mode === m[0] ? "checked" : "") + " style='width:auto'/> " + m[1] + "</label>";
+    });
+    html += "</div>";
+    if (p.mode === "score") html += "<div class='muted' style='font-size:12px;margin-top:6px'>将依据统一评分标准约束目录与内容方向（见设置可维护评分维度）。</div>";
+    if (p.mode === "custom") html += "<div class='muted' style='font-size:12px;margin-top:6px'>将按您在目录中自定义的章节与说明生成更准确方案。</div>";
+    html += "</div>";
+
+    // 基础信息卡片
+    if (p.basics) {
+      html += "<div class='card'><div class='section-title'>④ 提取的基础信息（可编辑）</div><div class='grid grid-2'>";
+      html += fld("招标方", "b-buyer", p.basics.buyer);
+      html += fld("项目名称", "b-proj", p.basics.project);
+      html += fld("预算/限价", "b-budget", p.basics.budget);
+      html += fld("截止日期", "b-deadline", p.basics.deadline);
+      html += fld("评分办法", "b-score", p.basics.scoreRule);
+      html += fld("识别资质", "b-certs", (p.basics.certs || []).join("、"));
+      html += "</div></div>";
+    }
+
+    // 暗标 + 图库联动
+    var imgs0 = S.get().materials.images || [];
+    var visN0 = imgs0.filter(function (im) { return im.desc; }).length;
+    html += "<div class='card'><div class='section-title'>⑤ 版式与素材联动</div><div class='section-sub'>暗标隐去投标人身份；图库视觉理解自动融入技术标</div>";
+    html += "<label class='pill' style='margin:6px 0'><input type='checkbox' id='p-dark' " + (p.darkLabel ? "checked" : "") + " style='width:auto'/> 暗标模式（导出时隐去投标人名称与署名，符合无标识投标要求）</label>";
+    html += "<label class='pill' style='margin:6px 0'><input type='checkbox' id='p-feed' " + (p.feedImg !== false ? "checked" : "") + " style='width:auto'/> 将图库理解结果融入技术标（已理解 " + visN0 + " 张）</label>";
+    if (visN0) {
+      html += "<div class='img-chips'>";
+      imgs0.filter(function (im) { return im.desc; }).slice(0, 10).forEach(function (im) {
+        html += "<span class='img-chip' title='" + esc(im.desc) + "'>" + (im.tags && im.tags.length ? esc(im.tags[0]) : esc(im.name)) + "</span>";
+      });
+      html += "</div>";
+    }
+    html += "</div>";
+
+    // 目录编辑
+    html += "<div class='card'><div class='section-title'>⑥⑦ 方案目录（工业产品类 · 可增删/改篇幅）</div>";
+    html += "<div id='chap-list'>";
+    ensureChapters(p).forEach(function (c, i) {
+      html += "<div class='checkrow' data-ci='" + i + "'><div class='ctext'><b>" + (i + 1) + ". " + esc(c.name) + "</b> <span class='muted' style='font-size:11px'>" + esc(c.tip || "") + "</span>" +
+        "<div style='margin-top:4px'><input class='c-name' value='" + esc(c.name) + "' style='max-width:60%'/> " +
+        "<select class='c-len' style='width:90px'><option value='短'" + (c.length === "短" ? " selected" : "") + ">短</option><option value='中'" + (c.length === "中" ? " selected" : "") + ">中</option><option value='长'" + (c.length === "长" ? " selected" : "") + ">长</option></select></div></div>" +
+        "<button class='btn-danger btn-sm c-del'>删</button></div>";
+    });
+    html += "</div>";
+    html += "<div class='toolbar'><button class='btn-ghost btn-sm' id='b-add-chap'>+ 添加章节</button><button class='btn-primary btn-sm' id='b-gen'>⑨ 批量生成方案内容</button>";
+    html += "<span class='muted' id='gen-tip' style='font-size:12px'></span></div></div>";
+
+    // 预览/导出
+    html += "<div class='card'><div class='section-title'>⑧⑩ 方案预览 / 导出</div>";
+    if (p.generated) {
+      html += "<div class='editor-out' id='preview'>" + esc(chaptersToText(p)) + "</div>";
+      html += "<div class='toolbar'><button class='btn-primary btn-sm' id='b-export-docx'>导出完整 Word 标书(.docx)</button><button class='btn-ghost btn-sm' id='b-export-md'>导出 Markdown</button><button class='btn-ghost btn-sm' id='b-export-txt'>导出 TXT</button><button class='btn-ghost btn-sm' id='b-export-doc'>导出 Word(.doc)</button></div>";
+    } else {
+      html += "<div class='empty'>点击“批量生成方案内容”后在此预览</div>";
+    }
+    html += "</div>";
+
+    // 方案附表
+    html += "<div class='card'><div class='section-title'>方案附表（工期安排 / 常用附表）</div><div class='section-sub'>工业产品类投标常附：设备清单、技术偏离表、培训计划</div>";
+    html += "<div class='toolbar'><button class='btn-ghost btn-sm' id='b-appendix'>生成附表</button></div>";
+    html += "<div id='appendix-out'></div></div>";
+
+    html += "</div></div>";
+    view.innerHTML = html;
+
+    // 事件
+    on("#f-name", "input", function (e) { p.name = e.target.value; save(); });
+    on("#f-raw", "input", function (e) { p.rawText = e.target.value; save(); });
+    on("#f-file", "change", function (e) {
+      var f = e.target.files[0]; if (!f) return;
+      if (/\.pdf$/i.test(f.name)) {
+        if (!SYD.pdf || !SYD.pdf.available()) { U.toast("PDF 引擎未加载，请用 .txt/.md 或粘贴文本"); return; }
+        U.toast("PDF 解析中…");
+        SYD.pdf.parseFile(f).then(function (txt) {
+          p.rawText = txt; save(); U.toast("PDF 解析完成，共 " + txt.length + " 字"); renderPlan();
+        }).catch(function (err) { U.toast("PDF 解析失败：" + err.message); });
+        return;
+      }
+      var r = new FileReader();
+      r.onload = function () { p.rawText = r.result; document.getElementById("f-raw").value = r.result; save(); U.toast("已读取 " + f.name); };
+      r.readAsText(f);
+    });
+    on("#b-extract", "click", function () {
+      p.basics = SYD.ai.extractBasics(p.rawText);
+      if (!p.basics.buyer && !p.basics.project) { document.getElementById("extract-tip").textContent = "未识别到关键字段，可手动补全"; }
+      else document.getElementById("extract-tip").textContent = "已提取：" + [p.basics.buyer, p.basics.project, p.basics.budget].filter(Boolean).join(" / ");
+      save(); renderPlan();
+    });
+    onAll("input[name=mode]", "change", function (e) { p.mode = e.target.value; save(); renderPlan(); });
+    if (p.basics) {
+      ["buyer", "proj", "budget", "deadline", "score", "certs"].forEach(function (k) {
+        on("#b-" + k, "input", function (e) { p.basics[k === "proj" ? "project" : k === "score" ? "scoreRule" : k] = e.target.value; save(); });
+      });
+    }
+    on("#p-dark", "change", function (e) { p.darkLabel = e.target.checked; save(); U.toast("已" + (p.darkLabel ? "启用" : "关闭") + "暗标模式"); });
+    on("#p-feed", "change", function (e) { p.feedImg = e.target.checked; save(); });
+    onAll(".c-del", "click", function (e) { var i = +e.target.closest("[data-ci]").getAttribute("data-ci"); p.chapters.splice(i, 1); save(); renderPlan(); });
+    onAll(".c-name", "input", function (e) { var i = +e.target.closest("[data-ci]").getAttribute("data-ci"); p.chapters[i].name = e.target.value; save(); });
+    onAll(".c-len", "change", function (e) { var i = +e.target.closest("[data-ci]").getAttribute("data-ci"); p.chapters[i].length = e.target.value; save(); });
+    on("#b-add-chap", "click", function () { ensureChapters(p); p.chapters.push({ name: "新章节", tip: "", length: "中", content: "" }); save(); renderPlan(); });
+    on("#b-gen", "click", async function () {
+      var tip = document.getElementById("gen-tip"); tip.textContent = "生成中…";
+      await generatePlan(p, SYD.ai.ready());
+      tip.textContent = SYD.ai.ready() ? "已用 AI 生成" : "已用离线模板生成（未配置AI）";
+      renderPlan();
+    });
+    if (p.generated) {
+      on("#b-export-md", "click", function () { U.download(p.name + "_技术方案.md", "# " + p.name + " 技术方案\n\n" + chaptersToText(p)); U.toast("已导出 Markdown"); });
+      on("#b-export-txt", "click", function () { U.download(p.name + "_技术方案.txt", p.name + " 技术方案\n\n" + chaptersToText(p)); U.toast("已导出 TXT"); });
+      on("#b-export-doc", "click", function () { U.downloadDoc(p.name + "_技术方案.doc", chaptersToDoc(p)); U.toast("已导出 Word"); });
+      on("#b-export-docx", "click", function () { SYD.word.exportBid(p); });
+    }
+    on("#b-appendix", "click", function () { document.getElementById("appendix-out").innerHTML = appendixHTML(p); });
+    onAll("[data-pick]", "click", function (e) { cur.pid = e.currentTarget.getAttribute("data-pick"); renderPlan(); });
+  }
+  function fld(label, id, val) { return "<div><label>" + label + "</label><input id='" + id + "' value='" + esc(val || "") + "'/></div>"; }
+  function chaptersToText(p) {
+    return ensureChapters(p).map(function (c, i) { return (i + 1) + ". " + c.name + "\n" + (c.content || "（未生成）") + "\n"; }).join("\n");
+  }
+  function appendixHTML(p) {
+    var b = p.basics || {};
+    var rows = [
+      ["1", "方案设计", "合同签订后", "5 个工作日"],
+      ["2", "设备生产与集成", "设计确认后", "30 个日历日"],
+      ["3", "厂内联调与检测", "生产完成后", "7 个日历日"],
+      ["4", "发货与现场安装", "通知发货后", "10 个日历日"],
+      ["5", "验收与培训", "安装完成后", "3 个日历日"]
+    ];
+    var h = "<h4 style='margin:6px 0'>工期安排</h4><table class='tbl'><tr><th>序号</th><th>阶段</th><th>起始</th><th>周期</th></tr>";
+    rows.forEach(function (r) { h += "<tr><td>" + r[0] + "</td><td>" + r[1] + "</td><td>" + r[2] + "</td><td>" + r[3] + "</td></tr>"; });
+    h += "</table>";
+    h += "<h4 style='margin:12px 0 6px'>技术偏离表（模板）</h4><table class='tbl'><tr><th>序号</th><th>招标文件要求</th><th>投标响应</th><th>偏离</th></tr>";
+    h += "<tr><td>1</td><td>（粘贴招标参数）</td><td>（填写投标参数）</td><td>无偏离</td></tr></table>";
+    h += "<h4 style='margin:12px 0 6px'>培训计划</h4><table class='tbl'><tr><th>对象</th><th>内容</th><th>时长</th></tr><tr><td>操作工</td><td>设备操作与日常维护</td><td>1 天</td></tr><tr><td>技术员</td><td>原理与故障处理</td><td>0.5 天</td></tr></table>";
+    h += "<div class='toolbar'><button class='btn-ghost btn-sm' id='b-apx-doc'>导出附表 Word</button></div>";
+    setTimeout(function () { var btn = document.getElementById("b-apx-doc"); if (btn) btn.onclick = function () { U.downloadDoc(p.name + "_附表.doc", h); U.toast("已导出附表"); }; }, 0);
+    return h;
+  }
+
+  // ================= AI 标书 =================
+  function renderBid() {
+    setView("AI 标书");
+    var ps = projects();
+    if (!ps.length) { view.innerHTML = emptyCard("AI 标书", "请先新建投标项目"); return; }
+    var p = curProject() || ps[0]; cur.pid = p.id;
+    var b = p.basics || {};
+    var html = "<div class='grid grid-2'>";
+    // 项目解读
+    html += "<div class='card'><div class='section-title'>项目信息解读</div><div class='section-sub'>大纲式 + 关键点</div>";
+    html += "<div class='editor-out'>" + esc(
+      "一、项目概况\n招标方：" + (b.buyer || p.buyer || "—") + "\n项目：" + (b.project || p.projectDesc || "—") +
+      "\n预算/限价：" + (b.budget || "—") + "\n截止：" + (b.deadline || "—") + "\n评分办法：" + (b.scoreRule || "—") +
+      "\n\n二、关键点\n· 资质门槛：" + (b.certs && b.certs.length ? b.certs.join("、") : "待补充") +
+      "\n· 执行标准：" + (b.standards && b.standards.length ? b.standards.join("；") : D.standards.slice(0, 3).join("；")) +
+      "\n· 商务要点：交货期、质保期、售后响应、培训"
+    ) + "</div></div>";
+    // 技术标
+    html += "<div class='card'><div class='section-title'>技术标创作</div><div class='section-sub'>复用 AI 方案引擎</div>";
+    var imgsB = S.get().materials.images || [];
+    var visNB = imgsB.filter(function (im) { return im.desc; }).length;
+    html += "<div class='muted' style='font-size:12px'>已生成章节：" + ensureChapters(p).length + " 章" + (visNB ? " · 已融入图库理解 " + visNB + " 张" : "") + (p.darkLabel ? " · 暗标模式" : "") + "</div>";
+    html += "<div class='toolbar'><button class='btn-primary btn-sm' id='b-tech'>前往生成/编辑技术标</button><button class='btn-ghost btn-sm' id='b-bid-docx'>导出完整 Word 标书</button></div></div>";
+    html += "</div>";
+
+    html += "<div class='grid grid-2'>";
+    // 商务标
+    html += "<div class='card'><div class='section-title'>商业标智能填写</div><div class='section-sub'>结合企业资料库一键填空</div>";
+    html += "<div class='toolbar'><button class='btn-primary btn-sm' id='b-biz'>打开商务标填空</button></div></div>";
+    // 报价
+    html += "<div class='card'><div class='section-title'>AI 报价</div><div class='section-sub'>成本测算 → 建议报价 → 审定填入</div>";
+    html += "<div class='muted' style='font-size:12px'>" + (p.quote && p.quote.decided ? "已审定报价：" + p.quote.decided + " 元" : "尚未审定报价") + "</div>";
+    html += "<div class='toolbar'><button class='btn-primary btn-sm' id='b-quote'>打开报价模块</button></div></div>";
+    html += "</div>";
+    view.innerHTML = html;
+
+    on("#b-tech", "click", function () { SYD.ui.render("plan"); });
+    on("#b-biz", "click", function () { renderBizFill(p); });
+    on("#b-quote", "click", function () { document.querySelectorAll(".nav-item").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-view") === "quote"); }); SYD.ui.render("quote"); });
+    on("#b-bid-docx", "click", function () { SYD.word.exportBid(p); });
+  }
+
+  function renderBizFill(p) {
+    var c = S.get().materials.company || {};
+    var html = "<div class='card'><div class='section-title'>商业标一键填空</div><div class='section-sub'>数据来自“企业素材库-企业资料库”，未填处请先在设置/素材库补全</div>";
+    html += "<table class='tbl'><tr><th>投标要素</th><th>填写值</th><th>来源</th></tr>";
+    D.bidFillTemplate.forEach(function (t) {
+      var v = c[t.k] || "";
+      html += "<tr><td>" + t.f + "</td><td><input data-k='" + t.k + "' value='" + esc(v) + "'/></td><td>" + (v ? "资料库" : "缺") + "</td></tr>";
+    });
+    html += "</table>";
+    html += "<div class='toolbar'><button class='btn-primary btn-sm' id='b-biz-save'>保存并回填资料库</button><button class='btn-ghost btn-sm' id='b-biz-doc'>导出商务标 Word</button></div>";
+    html += "<div class='editor-out' id='biz-preview' style='margin-top:10px'></div></div>";
+    view.innerHTML = html;
+    onAll("[data-k]", "input", function (e) { if (!S.get().materials.company) S.get().materials.company = {}; S.get().materials.company[e.target.getAttribute("data-k")] = e.target.value; save(); });
+    on("#b-biz-save", "click", function () { save(); U.toast("已回填企业资料库"); renderBizFill(p); });
+    on("#b-biz-doc", "click", function () {
+      var rows = D.bidFillTemplate.map(function (t) { var v = (S.get().materials.company || {})[t.k] || "（待填）"; return "<tr><td>" + t.f + "</td><td>" + esc(v) + "</td></tr>"; }).join("");
+      var doc = "<h2 style='text-align:center'>" + esc(p.name) + " 商务标投标函附表</h2><table border='1' cellpadding='6'><tr><th>投标要素</th><th>填写值</th></tr>" + rows + "</table>";
+      U.downloadDoc(p.name + "_商务标.doc", doc); U.toast("已导出商务标");
+    });
+    // 预览
+    var prev = D.bidFillTemplate.map(function (t) { var v = (S.get().materials.company || {})[t.k] || "（待填）"; return t.f + "：" + v; }).join("\n");
+    var pe = document.getElementById("biz-preview"); if (pe) pe.textContent = prev;
+  }
+
+  // ================= AI 报价 =================
+  function ensureQuote(p) {
+    if (!p.quote) {
+      var def = {}; D.quoteCostCats.forEach(function (c) { def[c.k] = c.def; });
+      var limit = "";
+      if (p.basics && p.basics.budget) { var mm = p.basics.budget.match(/[0-9]+(?:\.[0-9]+)?/); if (mm) limit = mm[0]; }
+      p.quote = { cost: def, margin: D.quoteMarginDefault, limit: limit, suggested: null, breakdown: [], decided: null, note: "", status: "" };
+    }
+    return p.quote;
+  }
+
+  function renderQuote() {
+    setView("AI 报价");
+    var ps = projects();
+    if (!ps.length) { view.innerHTML = emptyCard("AI 报价", "请先新建投标项目"); return; }
+    var p = curProject() || ps[0]; cur.pid = p.id;
+    var q = ensureQuote(p);
+    var b = p.basics || {};
+
+    var html = "<div class='grid' style='grid-template-columns:1fr 1fr'>";
+    // 左：成本录入
+    html += "<div class='card'><div class='section-title'>① 成本构成录入</div><div class='section-sub'>单位：人民币元（工业产品类投标）</div>";
+    html += "<div class='grid grid-2'>";
+    D.quoteCostCats.forEach(function (c) {
+      html += "<div><label>" + c.label + "</label><input type='number' min='0' id='qc-" + c.k + "' value='" + (q.cost[c.k] != null ? q.cost[c.k] : c.def) + "'/></div>";
+    });
+    html += "</div>";
+    html += "<div class='grid grid-2' style='margin-top:6px'>";
+    html += "<div><label>期望毛利率(%)</label><input type='number' min='0' max='100' id='qc-margin' value='" + q.margin + "'/></div>";
+    html += "<div><label>招标限价(元)</label><input type='number' min='0' id='qc-limit' value='" + (q.limit != null ? q.limit : "") + "' placeholder='无可留空'/></div>";
+    html += "</div>";
+    html += "<div class='toolbar'><button class='btn-primary btn-sm' id='b-q-ai'>AI 建议报价</button><button class='btn-ghost btn-sm' id='b-q-off'>离线测算</button><span class='muted' id='q-tip' style='font-size:12px'></span></div>";
+    html += "</div>";
+
+    // 右：建议与审定
+    html += "<div class='card'><div class='section-title'>② 建议报价与审定</div>";
+    if (q.suggested != null) {
+      html += "<div class='quote-hero'><div><div class='muted' style='font-size:12px'>建议报价</div><div class='big'>" + q.suggested + " <small>元</small></div></div>" +
+        "<div class='muted' style='text-align:right'>" + (q.status === "ai" ? "来源：AI 大模型" : "来源：离线成本测算") + (q.capped ? " · 已按限价封顶" : "") + "</div></div>";
+      html += "<ul class='breakdown'>";
+      (q.breakdown || []).forEach(function (bd) { html += "<li><span>" + esc(bd.name) + "</span><span>" + bd.amount + " 元</span></li>"; });
+      html += "</ul>";
+      if (q.note) html += "<div class='muted' style='font-size:12px;margin-top:8px'>" + esc(q.note) + "</div>";
+    } else {
+      html += "<div class='empty'>点击左侧“AI 建议报价”或“离线测算”生成建议</div>";
+    }
+    html += "<hr class='sep'/>";
+    html += "<label>审定报价（人民币元）</label><input type='number' min='0' id='qc-decided' value='" + (q.decided != null ? q.decided : (q.suggested != null ? q.suggested : "")) + "'/>";
+    html += "<div class='toolbar'><button class='btn-primary btn-sm' id='b-q-save'>审定并保存</button><button class='btn-ghost btn-sm' id='b-q-docx'>导出含报价 Word 标书</button></div>";
+    html += "</div>";
+    html += "</div>";
+
+    // 说明
+    html += "<div class='card'><div class='section-title'>报价流程说明</div><div class='section-sub'>AI 先出建议价 → 用户结合商务策略审定 → 回填项目，自动进入商务标与完整标书导出</div>";
+    html += "<div class='muted' style='font-size:12.5px;line-height:1.8'>· 招标方：" + (b.buyer || p.buyer || "—") + "；预算/限价：" + (b.budget || "—") + "<br/>· AI 建议价由成本+毛利率测算，并结合招标限价给出封顶提示；审定后不可在标书中随意改动，需留痕。<br/>· 审定值将出现在“AI 标书 → 商务标”与“导出完整 Word 标书”的报价章节。</div></div>";
+    view.innerHTML = html;
+
+    // 事件
+    D.quoteCostCats.forEach(function (c) { on("#qc-" + c.k, "input", function (e) { q.cost[c.k] = +e.target.value || 0; save(); }); });
+    on("#qc-margin", "input", function (e) { q.margin = +e.target.value || 0; save(); });
+    on("#qc-limit", "input", function (e) { q.limit = e.target.value; save(); });
+    on("#b-q-off", "click", function () {
+      var r = SYD.ai.quoteComputeOffline(q.cost, q.margin, q.limit);
+      q.suggested = r.suggested; q.breakdown = r.breakdown; q.note = r.note; q.capped = r.capped; q.status = "offline"; q.decided = q.decided != null ? q.decided : r.decided;
+      save(); document.getElementById("q-tip").textContent = "已离线测算"; renderQuote();
+    });
+    on("#b-q-ai", "click", async function () {
+      var tip = document.getElementById("q-tip"); tip.textContent = "AI 计算中…";
+      var ctx = "招标方：" + (b.buyer || p.buyer || "无") + "；项目：" + (b.project || p.projectDesc || "无") +
+        "；成本构成(元)：设备材料 " + q.cost.material + "、人工 " + q.cost.labor + "、制造 " + q.cost.mfg + "、运费 " + q.cost.freight + "、管理税费 " + q.cost.mgmt +
+        "；期望毛利率 " + q.margin + "%；招标限价 " + (q.limit || "无") + "。";
+      var sys = "你是资深工业设备投标报价专家，熟悉冶金焦化行业商务策略。只输出 JSON：{\"suggested\":建议总价(数字),\"breakdown\":[{\"name\":\"项\",\"amount\":金额}],\"note\":\"一句话理由\"}。不要解释。";
+      try {
+        var r = await SYD.ai.chat(sys, "请基于以下信息给出建议报价：" + ctx);
+        var m = (r || "").match(/\{[\s\S]*\}/);
+        if (m) {
+          var j = JSON.parse(m[0]);
+          q.suggested = +j.suggested || 0; q.breakdown = j.breakdown || []; q.note = j.note || ""; q.status = "ai";
+          if (q.limit && +q.limit > 0 && q.suggested > +q.limit) { q.capped = true; q.note += "（超出限价 " + q.limit + " 元，建议封顶）"; }
+          q.decided = q.decided != null ? q.decided : q.suggested;
+        } else throw new Error("未返回可解析 JSON");
+      } catch (e) {
+        var off = SYD.ai.quoteComputeOffline(q.cost, q.margin, q.limit);
+        q.suggested = off.suggested; q.breakdown = off.breakdown; q.note = off.note + "（AI 解析失败，已用离线兜底：" + e.message + "）"; q.capped = off.capped; q.status = "offline";
+        q.decided = q.decided != null ? q.decided : off.decided;
+      }
+      save(); tip.textContent = q.status === "ai" ? "AI 已给出建议" : "离线兜底完成"; renderQuote();
+    });
+    on("#b-q-save", "click", function () {
+      var d = +document.getElementById("qc-decided").value || 0;
+      if (!d) { U.toast("请填写审定报价"); return; }
+      q.decided = d; save(); U.toast("已审定报价：" + d + " 元，已进入标书与导出"); renderQuote();
+    });
+    on("#b-q-docx", "click", function () { SYD.word.exportBid(p); });
+  }
+
+  // ================= AI 质检 =================
+  function renderQC() {
+    setView("AI 质检");
+    var ps = projects();
+    if (!ps.length) { view.innerHTML = emptyCard("AI 质检", "请先新建投标项目"); return; }
+    var p = curProject() || ps[0]; cur.pid = p.id;
+    if (!p.qc) p.qc = { items: [], versions: [] };
+
+    var html = "<div class='card'><div class='section-title'>① 招标文件解析 → 质检项抽取</div>";
+    html += "<div class='toolbar'><button class='btn-primary btn-sm' id='b-parse'>解析当前招标文件并生成质检项</button><span class='muted' id='qc-tip' style='font-size:12px'></span></div>";
+    html += "<div id='qc-items'>";
+    if (p.qc.items.length) html += qcItemsHTML(p); else html += "<div class='empty'>尚未生成质检项</div>";
+    html += "</div></div>";
+
+    html += "<div class='card'><div class='section-title'>② 投标文件质检与报告</div>";
+    html += "<label>上传/粘贴投标文件正文</label><textarea id='qc-text' rows='5' placeholder='粘贴已撰写的投标正文，系统比对质检项并标记缺漏/偏差'></textarea>";
+    html += "<div class='toolbar'><button class='btn-ghost btn-sm' id='b-check'>执行质检</button><button class='btn-ghost btn-sm' id='b-savever'>保存本版本质检快照</button><button class='btn-ghost btn-sm' id='b-report'>导出质检报告</button></div>";
+    html += "<div id='qc-result'></div></div>";
+
+    html += "<div class='card'><div class='section-title'>③ 多版本对比追踪</div><div id='qc-versions'></div></div>";
+
+    html += "<div class='card'><div class='section-title'>④ 自定义质检项</div>";
+    html += "<div class='row'><input id='qc-new' placeholder='新增质检项描述'/><button class='btn-ghost btn-sm' id='b-addqc'>添加</button></div></div>";
+    view.innerHTML = html;
+
+    on("#b-parse", "click", function () {
+      if (!p.rawText) { U.toast("请先在 AI 方案上传招标文件原文"); return; }
+      var items = [];
+      D.qcKeywords.forEach(function (q) {
+        if (p.rawText.indexOf(q.kw) >= 0) items.push({ id: U.uid(), label: q.label, cat: q.cat, status: "", note: "" });
+      });
+      // 自定义模板
+      S.get().qcTemplates.forEach(function (t) { items.push({ id: U.uid(), label: t, cat: "自定义", status: "", note: "" }); });
+      if (!items.length) items.push({ id: U.uid(), label: "通用完整性检查", cat: "合规", status: "", note: "" });
+      p.qc.items = items; save();
+      document.getElementById("qc-tip").textContent = "已生成 " + items.length + " 项";
+      document.getElementById("qc-items").innerHTML = qcItemsHTML(p); bindQCItems(p);
+    });
+    on("#b-addqc", "click", function () {
+      var v = document.getElementById("qc-new").value.trim(); if (!v) return;
+      p.qc.items.push({ id: U.uid(), label: v, cat: "自定义", status: "", note: "" }); save();
+      document.getElementById("qc-items").innerHTML = qcItemsHTML(p); bindQCItems(p); document.getElementById("qc-new").value = "";
+    });
+    on("#b-check", "click", function () {
+      var txt = document.getElementById("qc-text").value || "";
+      var done = 0, miss = 0;
+      p.qc.items.forEach(function (it) {
+        if (it.status === "ok") done++; else if (it.status === "miss") miss++;
+      });
+      // 自动初判：未标记项按正文是否包含关键词粗判
+      var auto = 0;
+      p.qc.items.forEach(function (it) {
+        if (!it.status) {
+          var hit = txt.indexOf(it.label) >= 0 || (it.note && txt.indexOf(it.note) >= 0);
+          if (hit) { it._auto = "疑似覆盖"; auto++; } else { it._auto = "未检出"; }
+        }
+      });
+      var total = p.qc.items.length;
+      var rate = total ? Math.round((done / total) * 100) : 0;
+      var cls = rate >= 90 ? "ok" : rate >= 70 ? "warn" : "bad";
+      var h = "<div class='row spread' style='margin:10px 0'><div>合格率（已确认）：<b style='color:var(--ok)'>" + rate + "%</b></div><div class='bar " + cls + "' style='flex:1;margin-left:12px'><i style='width:" + rate + "%'></i></div></div>";
+      h += "<div class='muted' style='font-size:12px'>自动初判：覆盖 " + auto + " 项，未检出 " + (total - done - auto) + " 项；请逐条确认状态。</div>";
+      document.getElementById("qc-result").innerHTML = h;
+      U.toast("质检完成，请确认各项状态");
+    });
+    on("#b-savever", "click", function () {
+      var snap = { date: U.fmtDate(), items: p.qc.items.map(function (i) { return { label: i.label, status: i.status, note: i.note }; }) };
+      p.qc.versions.push(snap); save();
+      renderQC(); U.toast("已保存版本快照");
+    });
+    on("#b-report", "click", function () {
+      var rows = p.qc.items.map(function (i, n) { return "<tr><td>" + (n + 1) + "</td><td>" + esc(i.label) + "</td><td>" + (i.status === "ok" ? "符合" : i.status === "miss" ? "缺漏/偏差" : "待确认") + "</td><td>" + esc(i.note || "") + "</td></tr>"; }).join("");
+      var doc = "<h2 style='text-align:center'>" + esc(p.name) + " 投标质检报告</h2><table border='1' cellpadding='6'><tr><th>序号</th><th>质检项</th><th>结论</th><th>说明</th></tr>" + rows + "</table>";
+      U.downloadDoc(p.name + "_质检报告.doc", doc); U.toast("已导出质检报告");
+    });
+    bindQCItems(p);
+    renderVersions(p);
+  }
+  function qcItemsHTML(p) {
+    var h = "";
+    p.qc.items.forEach(function (it) {
+      h += "<div class='checkrow' data-qid='" + it.id + "'><div class='ctext'><b>" + esc(it.label) + "</b> <span class='tag gray'>" + esc(it.cat) + "</span>" +
+        (it._auto ? " <span class='muted' style='font-size:11px'>[" + it._auto + "]</span>" : "") +
+        "<div style='margin-top:4px'><input class='q-note' placeholder='偏差说明/备注' value='" + esc(it.note || "") + "' style='max-width:70%'/></div></div>" +
+        "<div class='row'><label class='pill'><input type='radio' name='st_" + it.id + "' value='ok' " + (it.status === "ok" ? "checked" : "") + " style='width:auto'/>符合</label>" +
+        "<label class='pill'><input type='radio' name='st_" + it.id + "' value='miss' " + (it.status === "miss" ? "checked" : "") + " style='width:auto'/>缺漏</label></div></div>";
+    });
+    return h;
+  }
+  function bindQCItems(p) {
+    onAll("[data-qid] input.q-note", "input", function (e) {
+      var id = e.target.closest("[data-qid]").getAttribute("data-qid");
+      var it = p.qc.items.filter(function (x) { return x.id === id; })[0]; if (it) it.note = e.target.value; save();
+    });
+    onAll("[data-qid] input[type=radio]", "change", function (e) {
+      var id = e.target.closest("[data-qid]").getAttribute("data-qid");
+      var it = p.qc.items.filter(function (x) { return x.id === id; })[0]; if (it) { it.status = e.target.value; it._auto = ""; save(); }
+    });
+  }
+  function renderVersions(p) {
+    var box = document.getElementById("qc-versions"); if (!box) return;
+    if (!p.qc.versions.length) { box.innerHTML = "<div class='empty'>暂无版本快照</div>"; return; }
+    var h = "<div class='list'>";
+    p.qc.versions.forEach(function (v, i) {
+      var ok = v.items.filter(function (x) { return x.status === "ok"; }).length;
+      h += "<div class='item'><div>版本 " + (i + 1) + " · " + esc(v.date) + " · 符合 " + ok + "/" + v.items.length + "</div><span class='tag gray'>历史</span></div>";
+    });
+    h += "</div>"; box.innerHTML = h;
+  }
+
+  // ================= 方案查重 =================
+  function renderDup() {
+    setView("方案查重");
+    var html = "<div class='card'><div class='section-title'>文本相似度比对（规避串标风险）</div><div class='section-sub'>基于字符二元组余弦 + 3-gram Jaccard；结果仅供参考，语义级需接 AI</div>";
+    html += "<div class='grid grid-2'><div><label>方案 A</label><textarea id='d-a' rows='10' placeholder='粘贴第一份方案/标书正文'></textarea></div>";
+    html += "<div><label>方案 B</label><textarea id='d-b' rows='10' placeholder='粘贴第二份方案/标书正文（或企业知识库文档）'></textarea></div></div>";
+    html += "<div class='toolbar'><button class='btn-primary btn-sm' id='b-dup'>开始比对</button><span id='dup-tip' class='muted' style='font-size:12px'></span></div>";
+    html += "<div id='dup-out'></div></div>";
+    view.innerHTML = html;
+    on("#b-dup", "click", function () {
+      var a = document.getElementById("d-a").value, b = document.getElementById("d-b").value;
+      if (!a || !b) { U.toast("请粘贴两份文本"); return; }
+      var r = similarity(a, b);
+      var cls = r.cosine >= 0.6 ? "bad" : r.cosine >= 0.3 ? "warn" : "ok";
+      var h = "<div class='row spread' style='margin:10px 0'><div>相似度：<b style='color:var(--" + (cls === "bad" ? "bad" : cls === "warn" ? "warn" : "ok") + ")'>" + Math.round(r.cosine * 100) + "%</b> （Jaccard " + Math.round(r.jac * 100) + "%）</div>";
+      h += "<div class='bar " + cls + "' style='flex:1;margin-left:12px'><i style='width:" + Math.round(r.cosine * 100) + "%'></i></div></div>";
+      h += "<div class='muted' style='font-size:12px'>高频共现片段（疑似雷同）：</div><div class='editor-out' style='max-height:200px'>" + (r.common.length ? esc(r.common.join("\n")) : "未检出明显共现片段") + "</div>";
+      document.getElementById("dup-out").innerHTML = h;
+    });
+  }
+  function tokens(s) { return (s || "").replace(/\s+/g, " ").trim(); }
+  function bigrams(s) { s = tokens(s); var g = {}; for (var i = 0; i < s.length - 1; i++) { var k = s.slice(i, i + 2); g[k] = (g[k] || 0) + 1; } return g; }
+  function cosine(a, b) { var ga = bigrams(a), gb = bigrams(b), dot = 0, na = 0, nb = 0; for (var k in ga) na += ga[k] * ga[k]; for (var k in gb) nb += gb[k] * gb[k]; for (var k in ga) if (gb[k]) dot += ga[k] * gb[k]; if (!na || !nb) return 0; return dot / (Math.sqrt(na) * Math.sqrt(nb)); }
+  function shingles(s, k) { s = tokens(s); var set = {}; for (var i = 0; i + k <= s.length; i++) set[s.slice(i, i + k)] = 1; return set; }
+  function jaccard(a, b) { var sa = shingles(a, 6), sb = shingles(b, 6), inter = 0, uni = 0; for (var k in sa) { uni++; if (sb[k]) inter++; } for (var k in sb) if (!sa[k]) uni++; return uni ? inter / uni : 0; }
+  function commonPhrases(a, b) { var sa = shingles(a, 8), sb = shingles(b, 8), out = []; for (var k in sa) if (sb[k]) out.push(k); return out.slice(0, 30); }
+  function similarity(a, b) { return { cosine: cosine(a, b), jac: jaccard(a, b), common: commonPhrases(a, b) }; }
+
+  // ================= 企业素材库 =================
+  function renderLib() {
+    setView("企业素材库");
+    var m = S.get().materials;
+    var html = "<div class='grid grid-3'>";
+    // 知识库
+    html += "<div class='card'><div class='section-title'>知识库（RAG 私有素材）</div><div class='section-sub'>上传高质量资料，方案生成时智能检索引用</div>";
+    html += "<div class='row'><input id='kb-title' placeholder='文档标题'/><input id='kb-file' type='file' accept='.txt,.md' style='width:auto'/></div>";
+    html += "<textarea id='kb-text' rows='4' placeholder='或在此粘贴文档正文'></textarea>";
+    html += "<div class='toolbar'><button class='btn-primary btn-sm' id='b-kb-add'>添加到知识库</button><input id='kb-search' placeholder='检索' style='max-width:140px'/><button class='btn-ghost btn-sm' id='b-kb-search'>检索</button></div>";
+    html += "<div id='kb-list'></div></div>";
+    // 私人图库
+    html += "<div class='card'><div class='section-title'>私人图库（视觉理解）</div><div class='section-sub'>上传产品图/现场图；启用 AI 后可一键视觉理解，自动标注描述与标签</div>";
+    html += "<div class='toolbar'><input type='file' id='img-file' accept='image/*' style='width:auto'/><button class='btn-primary btn-sm' id='b-img-add'>上传</button><button class='btn-ghost btn-sm' id='b-img-vis'>AI 视觉理解（全部）</button><span class='muted' id='img-vis-tip' style='font-size:12px'></span></div>";
+    html += "<div class='img-grid' id='img-list'></div></div>";
+    // 企业资料库
+    html += "<div class='card'><div class='section-title'>企业资料库（商务标填空底座）</div>";
+    var c = m.company || {};
+    ["name:投标人名称", "credit:统一社会信用代码", "legal:法定代表人", "addr:注册地址", "phone:联系电话", "bank:开户银行", "account:银行账号", "product:主营投标产品", "lead:交货期", "warranty:质保期"].forEach(function (pair) {
+      var kv = pair.split(":"); html += fld(kv[1], "co-" + kv[0], c[kv[0]] || "");
+    });
+    html += "<div class='toolbar'><button class='btn-primary btn-sm' id='b-co-save'>保存企业资料</button></div></div>";
+    html += "</div>";
+    view.innerHTML = html;
+
+    function renderKB(list) {
+      list = list || m.knowledge;
+      var h = "<div class='list'>";
+      list.forEach(function (d) { h += "<div class='item'><div style='font-size:13px'><b>" + esc(d.title) + "</b><div class='muted' style='font-size:11px'>" + esc(d.text.slice(0, 40)) + (d.text.length > 40 ? "…" : "") + "</div></div><button class='btn-danger btn-sm kb-del' data-id='" + d.id + "'>删</button></div>"; });
+      h += "</div>"; if (!list.length) h = "<div class='empty'>暂无文档</div>";
+      document.getElementById("kb-list").innerHTML = h;
+      onAll(".kb-del", "click", function (e) { m.knowledge = m.knowledge.filter(function (x) { return x.id !== e.target.getAttribute("data-id"); }); save(); renderKB(); });
+    }
+    renderKB();
+    on("#b-kb-add", "click", function () {
+      var title = document.getElementById("kb-title").value.trim();
+      var text = document.getElementById("kb-text").value.trim();
+      var f = document.getElementById("kb-file").files[0];
+      if (f) { var r = new FileReader(); r.onload = function () { m.knowledge.push({ id: U.uid(), title: title || f.name, text: r.result }); save(); renderKB(); document.getElementById("kb-title").value = ""; document.getElementById("kb-text").value = ""; U.toast("已添加"); }; r.readAsText(f); return; }
+      if (!title || !text) { U.toast("请填写标题与正文或上传文件"); return; }
+      m.knowledge.push({ id: U.uid(), title: title, text: text }); save(); renderKB(); document.getElementById("kb-title").value = ""; document.getElementById("kb-text").value = ""; U.toast("已添加");
+    });
+    on("#b-kb-search", "click", function () { var q = document.getElementById("kb-search").value.trim(); if (!q) return renderKB(); renderKB(m.knowledge.filter(function (d) { return (d.title + d.text).indexOf(q) >= 0; })); });
+    on("#b-img-add", "click", function () {
+      var f = document.getElementById("img-file").files[0]; if (!f) return;
+      if (f.size > 1.5 * 1024 * 1024) { U.toast("图片过大（>1.5MB），本地存储受限，已跳过"); return; }
+      var r = new FileReader(); r.onload = function () {
+        var im = { id: U.uid(), src: r.result, name: f.name, desc: "", tags: [] };
+        m.images.push(im); save(); renderImgs(); U.toast("已上传");
+        if (SYD.ai.readyVision()) { visionOne(im).then(renderImgs); }
+      }; r.readAsDataURL(f);
+    });
+    async function visionOne(im) {
+      try {
+        var r = await SYD.ai.vision("你是工业设备投标素材标注专家，服务于冶金焦化行业。",
+          "请用中文描述这张图片中的设备外观、结构或场景，并在末尾另起一行以『标签：』开头列出 3-5 个中文标签，用顿号分隔。", im.src);
+        var desc = (r || "").trim();
+        var mt = desc.match(/标签[：:]\s*(.+)$/m);
+        var tags = [];
+        if (mt) { tags = mt[1].split(/[、,，\s]+/).filter(Boolean).slice(0, 6); desc = desc.replace(/标签[：:].*$/m, "").trim(); }
+        im.desc = desc; im.tags = tags; save();
+      } catch (e) { im.desc = "（理解失败：" + e.message + "）"; save(); }
+    }
+    on("#b-img-vis", "click", async function () {
+      if (!SYD.ai.readyVision()) { U.toast("请先在设置启用 AI（视觉理解需多模态模型）"); return; }
+      var tip = document.getElementById("img-vis-tip");
+      if (!m.images.length) { U.toast("请先上传图片"); return; }
+      tip.textContent = "视觉理解中…(" + m.images.length + " 张)";
+      for (var i = 0; i < m.images.length; i++) { await visionOne(m.images[i]); }
+      tip.textContent = "已完成视觉理解"; renderImgs(); U.toast("视觉理解完成");
+    });
+    function renderImgs() {
+      var box = document.getElementById("img-list"); var h = "";
+      m.images.forEach(function (im) {
+        h += "<div class='img-tile' data-id='" + im.id + "'>";
+        if (im.desc) h += "<span class='vis-badge'>已理解</span>";
+        h += "<img src='" + im.src + "'/>";
+        h += "<div class='img-desc'>" + (im.desc ? esc(im.desc) : esc(im.name)) + "</div>";
+        if (im.tags && im.tags.length) h += "<div class='img-tags'>" + im.tags.map(function (t) { return "<span class='img-tag'>" + esc(t) + "</span>"; }).join("") + "</div>";
+        h += "<button class='btn-danger btn-sm img-del' data-id='" + im.id + "' style='margin-top:6px'>删除</button></div>";
+      });
+      box.innerHTML = h || "<span class='muted'>暂无图片</span>";
+      onAll(".img-del", "click", function (e) { m.images = m.images.filter(function (x) { return x.id !== e.target.getAttribute("data-id"); }); save(); renderImgs(); });
+    }
+    renderImgs();
+    on("#b-co-save", "click", function () {
+      var co = {}; ["name", "credit", "legal", "addr", "phone", "bank", "account", "product", "lead", "warranty"].forEach(function (k) { co[k] = document.getElementById("co-" + k).value.trim(); });
+      m.company = co; save(); U.toast("企业资料已保存，可用于商务标填空");
+    });
+  }
+
+  // ================= 设置 =================
+  function renderSettings() {
+    setView("设置");
+    var ai = S.get().ai;
+    var html = "<div class='card'><div class='section-title'>AI 大模型接入（OpenAI 兼容）</div><div class='section-sub'>填写后“AI 方案/技术标”将调用真实大模型；不填则使用离线模板</div>";
+    html += fld("API Base URL", "ai-url", ai.baseUrl);
+    html += fld("API Key", "ai-key", ai.key);
+    html += fld("模型名", "ai-model", ai.model);
+    html += "<label class='pill'><input type='checkbox' id='ai-on' " + (ai.enabled ? "checked" : "") + " style='width:auto'/> 启用 AI 调用</label>";
+    html += "<div class='toolbar'><button class='btn-primary btn-sm' id='b-ai-save'>保存配置</button><button class='btn-ghost btn-sm' id='b-ai-test'>测试连接</button><span id='ai-test-tip' class='muted' style='font-size:12px'></span></div></div>";
+
+    html += "<div class='card'><div class='section-title'>评分维度（快捷/定制评分模式依据）</div>";
+    html += "<table class='tbl'><tr><th>维度</th><th>权重%</th><th>关注关键词</th></tr>";
+    D.scoreDims.forEach(function (d) { html += "<tr><td>" + esc(d.dim) + "</td><td>" + d.weight + "</td><td class='muted' style='font-size:12px'>" + esc(d.keys.join("、")) + "</td></tr>"; });
+    html += "</table></div>";
+
+    html += "<div class='card'><div class='section-title'>执行标准（冶金焦化）</div><div class='muted' style='font-size:12px'>" + esc(D.standards.join("；")) + "</div></div>";
+
+    html += "<div class='card'><div class='section-title'>版式默认偏好</div>";
+    html += "<label class='pill'><input type='checkbox' id='set-dark' " + (S.get().settings.defaultDarkLabel ? "checked" : "") + " style='width:auto'/> 新建项目默认启用暗标模式</label>";
+    html += "<div class='muted' style='font-size:12px'>暗标：导出标书时隐去投标人名称与平台署名，符合无标识投标要求。</div></div>";
+
+    html += "<div class='card'><div class='section-title'>工程数据迁移（跨设备 / 云同步）</div><div class='section-sub'>云同步只同步代码文件，不同步浏览器数据。用此功能把投标项目、素材库、AI 配置打包带走</div>";
+    html += "<div class='toolbar'><button class='btn-primary btn-sm' id='b-export'>导出工程数据（.json）</button><button class='btn-ghost btn-sm' id='b-import'>导入工程数据</button><input type='file' id='f-import' accept='application/json,.json' style='display:none'/></div>";
+    html += "<div class='muted' style='font-size:12px'>导出为 JSON 文件，可存入微云/网盘；在另一台电脑“导入”即可恢复全部数据与配置（含 AI Key）。</div></div>";
+
+    html += "<div class='card'><div class='section-title' style='color:var(--bad)'>危险操作</div>";
+    html += "<div class='toolbar'><button class='btn-danger btn-sm' id='b-reset'>清空全部本地数据</button></div>";
+    html += "<div class='muted' style='font-size:12px'>仅清空本平台 localStorage 数据，不影响其他文件。</div></div>";
+    view.innerHTML = html;
+
+    on("#b-ai-save", "click", function () {
+      ai.baseUrl = document.getElementById("ai-url").value.trim();
+      ai.key = document.getElementById("ai-key").value.trim();
+      ai.model = document.getElementById("ai-model").value.trim();
+      ai.enabled = document.getElementById("ai-on").checked;
+      save(); updateAIStatus(); U.toast("AI 配置已保存");
+    });
+    on("#b-ai-test", "click", async function () {
+      var tip = document.getElementById("ai-test-tip");
+      if (!ai.enabled || !ai.key) { tip.textContent = "请先启用并填写 Key"; return; }
+      tip.textContent = "测试中…";
+      try { var r = await SYD.ai.chat("只回复 ok", "ok"); tip.textContent = "连接成功：" + (r || "").slice(0, 20); }
+      catch (e) { tip.textContent = "失败：" + e.message; }
+    });
+    on("#b-reset", "click", function () {
+      confirmModal({ title: "危险操作确认", sub: "确认清空全部投标项目与素材库数据？此操作不可恢复。", okText: "确认清空", onOk: function () { S.reset(); U.toast("已清空"); SYD.ui.render("dashboard"); updateAIStatus(); } });
+    });
+    on("#set-dark", "change", function (e) { S.get().settings.defaultDarkLabel = e.target.checked; save(); });
+
+    on("#b-export", "click", function () {
+      U.download("智能投标平台_工程数据_" + U.fmtDate() + ".json", JSON.stringify(S.exportData(), null, 2), "application/json;charset=utf-8");
+      U.toast("已导出工程数据");
+    });
+    on("#b-import", "click", function () { document.getElementById("f-import").click(); });
+    on("#f-import", "change", function (e) {
+      var f = e.target.files[0]; if (!f) return;
+      var r = new FileReader();
+      r.onload = function () {
+        try {
+          var obj = JSON.parse(r.result);
+          confirmModal({ title: "导入工程数据", sub: "将覆盖当前全部本地数据，确定导入？", okText: "确认导入", onOk: function () {
+            S.importData(obj); U.toast("导入成功，正在刷新…"); SYD.ui.render("dashboard"); updateAIStatus();
+          } });
+        } catch (err) { U.toast("导入失败：" + err.message); }
+      };
+      r.readAsText(f); e.target.value = "";
+    });
+  }
+
+  function emptyCard(t, sub) { return "<div class='card'><div class='section-title'>" + t + "</div><div class='empty'>" + sub + "</div></div>"; }
+
+  function updateAIStatus() {
+    var el = document.getElementById("ai-status"); if (!el) return;
+    el.textContent = SYD.ai.ready() ? "AI：已启用" : "AI：未配置";
+  }
+
+  var map = {
+    dashboard: renderDashboard, plan: renderPlan, bid: renderBid, quote: renderQuote,
+    qc: renderQC, dup: renderDup, lib: renderLib, settings: renderSettings
+  };
+  SYD.ui = {
+    render: function (name) { (map[name] || map.dashboard)(); updateAIStatus(); },
+    setProject: function (id) { cur.pid = id; },
+    modal: modal,
+    confirm: confirmModal
+  };
+})();
