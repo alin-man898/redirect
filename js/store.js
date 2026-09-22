@@ -7,7 +7,7 @@
   function defaultState() {
     return {
       projects: [],            // 投标项目
-      materials: {             // 企业素材库
+      materials: {             // 企业素材
         knowledge: [],         // 知识库文档
         images: [],            // 私人图库(base64 + 描述 + 标签)
         company: null          // 企业资料库(结构化)
