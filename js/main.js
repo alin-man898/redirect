@@ -2,7 +2,7 @@
 (function () {
   "use strict";
   var SYD = window.SYD, S = SYD.store;
-  var VIEW_TITLES = { dashboard: "工作台", plan: "AI 方案", bid: "AI 标书", quote: "AI 报价", qc: "AI 质检", dup: "方案查重", lib: "企业素材库", settings: "设置" };
+  var VIEW_TITLES = { dashboard: "工作中心", plan: "智能方案", bid: "智能标书", quote: "智能报价", qc: "智能质检", dup: "方案查重", lib: "企业素材", settings: "系统设置" };
 
   function applyTheme(t) {
     document.documentElement.setAttribute("data-theme", t);
@@ -49,4 +49,35 @@
   // 初始
   applyTheme(S.get().settings.theme || "light");
   SYD.ui.render("dashboard");
+
+  // 全站禁右键 + 版权所有人提示（跟随光标，自动贴边防越界）
+  (function () {
+    var tip = null;
+    function showTip(x, y) {
+      if (!tip) {
+        tip = document.createElement("div");
+        tip.id = "copyright-tip";
+        tip.textContent = "版权所有人：梵音未改";
+        document.body.appendChild(tip);
+      }
+      var w = tip.offsetWidth || 140, h = tip.offsetHeight || 36;
+      var left = Math.min(Math.max(x, w / 2 + 8), window.innerWidth - w / 2 - 8);
+      // 靠近顶部时翻到光标下方，避免被推到屏幕外看不见
+      if (y - h - 14 < 8) {
+        tip.style.transform = "translate(-50%, 22px)";
+      } else {
+        tip.style.transform = "translate(-50%, -130%)";
+      }
+      tip.style.left = left + "px";
+      tip.style.top = y + "px";
+      tip.classList.add("show");
+      clearTimeout(tip._t);
+      tip._t = setTimeout(function () { tip.classList.remove("show"); }, 2000);
+    }
+    document.addEventListener("contextmenu", function (e) {
+      e.preventDefault();
+      showTip(e.clientX, e.clientY);
+    });
+    document.addEventListener("click", function () { if (tip) tip.classList.remove("show"); });
+  })();
 })();
