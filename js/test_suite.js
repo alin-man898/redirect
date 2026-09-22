@@ -2,7 +2,7 @@
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 
-const ROOT = 'G:/智能投标工作平台/';
+const ROOT = require('path').join(__dirname, '..').replace(/\\/g, '/') + '/';
 let html = fs.readFileSync(ROOT + 'index.html', 'utf8');
 html = html.replace(/<script[\s\S]*?<\/script>/g, ''); // 剔除原 script，改为手动 eval
 const dom = new JSDOM(html, { runScripts: 'dangerously', url: 'https://localhost/', pretendToBeVisual: true });
