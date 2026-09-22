@@ -122,13 +122,27 @@
 
   // ================= 工作台 =================
   function renderDashboard() {
-    setView("工作台");
+    setView("工作中心");
     var ps = projects();
     var mats = S.get().materials;
     var pendingQC = ps.filter(function (p) { return p.qc && p.qc.items && p.qc.items.length && p.qc.items.some(function (i) { return !i.status; }); }).length;
     var gen = ps.filter(function (p) { return p.generated; }).length;
     var quoted = ps.filter(function (p) { return p.quote && p.quote.decided; }).length;
     var html = "";
+    // 封面 Hero（首页专属感）
+    html += "<div class='cover'>" +
+      "<div class='cover-glow'></div>" +
+      "<div class='cover-brand'>梵音未改 · 出品</div>" +
+      "<h1 class='cover-title'>智能投标工作平台</h1>" +
+      "<div class='cover-sub'>孟凡林 的专属投标工作台 · 冶金焦化 B2B 投标响应系统</div>" +
+      "<div class='cover-tags'>" +
+        "<span class='cover-tag'>离线可用</span>" +
+        "<span class='cover-tag'>数据本地保存</span>" +
+        "<span class='cover-tag'>纯前端 · 无后台</span>" +
+      "</div>" +
+      "<button class='btn-primary cover-cta' id='cover-new'>+ 新建投标项目</button>" +
+    "</div>";
+
     html += "<div class='grid grid-4'>";
     html += stat(ps.length, "投标项目");
     html += stat(gen, "已生成方案");
@@ -136,7 +150,7 @@
     html += stat(pendingQC, "待完成质检");
     html += "</div>";
 
-    html += "<div class='card'><div class='section-title'>最近投标项目</div><div class='section-sub'>点击进入 AI 方案模块继续编辑</div>";
+    html += "<div class='card'><div class='section-title'>最近投标项目</div><div class='section-sub'>点击进入 智能方案模块继续编辑</div>";
     if (!ps.length) html += "<div class='empty'>暂无项目，点击右上角“新建投标项目”开始</div>";
     else {
       html += "<div class='list'>";
@@ -153,26 +167,27 @@
     html += "<div class='card'><div class='section-title'>平台能力总览</div><div class='section-sub'>借鉴“小晓AI标书”全部核心能力，面向冶金焦化 B2B 投标重构 · 点击卡片直达模块</div>";
     html += "<div class='module-grid'>";
     var mods = [
-      ["✎", "AI 方案", "三种模式（快速/快捷评分/定制）+ 工业产品类项目规划 + 目录生成 + 批量成稿", "plan"],
-      ["▣", "AI 标书", "招标解读 / 技术标创作 / 商务标一键填空（结合企业资料库）", "bid"],
-      ["¥", "AI 报价", "成本测算 → AI 建议报价 → 用户审定填入 → 贯通商务标与导出", "quote"],
-      ["✔", "AI 质检", "招标文件解析→质检项抽取→多版本对比→自定义配置，可视化报告", "qc"],
+      ["✎", "智能方案", "三种模式（快速/快捷评分/定制）+ 工业产品类项目规划 + 目录生成 + 批量成稿", "plan"],
+      ["▣", "智能标书", "招标解读 / 技术标创作 / 商务标一键填空（结合企业资料库）", "bid"],
+      ["¥", "智能报价", "成本测算 → AI 建议报价 → 用户审定填入 → 贯通商务标与导出", "quote"],
+      ["✔", "智能质检", "招标文件解析→质检项抽取→多版本对比→自定义配置，可视化报告", "qc"],
       ["⊞", "方案查重", "文本语义相似度比对，规避串标风险", "dup"],
-      ["▤", "企业素材库", "知识库(RAG) / 私人图库(视觉理解) / 企业资料库（填空底座）", "lib"]
+      ["▤", "企业素材", "知识库(RAG) / 私人图库(视觉理解) / 企业资料库（填空底座）", "lib"]
     ];
     mods.forEach(function (m) { html += "<div class='mod-card' data-go='" + m[3] + "'><div class='mod-ico'>" + m[0] + "</div><div class='mod-title'>" + m[1] + "</div><div class='mod-desc'>" + m[2] + "</div></div>"; });
     html += "</div></div>";
     view.innerHTML = html;
     onAll("[data-open]", "click", function (e) { cur.pid = e.currentTarget.getAttribute("data-open"); SYD.ui.render("plan"); });
     onAll("[data-go]", "click", function (e) { var v = e.currentTarget.getAttribute("data-go"); document.querySelectorAll(".nav-item").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-view") === v); }); SYD.ui.render(v); });
+    var cn = view.querySelector("#cover-new"); if (cn) cn.addEventListener("click", function () { var b = document.getElementById("btn-new-project"); if (b) b.click(); });
   }
   function stat(n, l) { return "<div class='stat'><div class='num'>" + n + "</div><div class='lab'>" + l + "</div></div>"; }
 
-  // ================= AI 方案 =================
+  // ================= 智能方案 =================
   function renderPlan() {
-    setView("AI 方案");
+    setView("智能方案");
     var ps = projects();
-    if (!ps.length) { view.innerHTML = emptyCard("AI 方案", "请先在右上角新建投标项目"); return; }
+    if (!ps.length) { view.innerHTML = emptyCard("智能方案", "请先在右上角新建投标项目"); return; }
     var p = curProject() || ps[0]; cur.pid = p.id;
 
     var steps = ["新建项目", "上传招标文件", "选择模式", "智能提取信息", "生成项目规划", "生成目录", "目录预览", "选择篇幅", "批量生成", "导出"];
@@ -346,11 +361,11 @@
     return h;
   }
 
-  // ================= AI 标书 =================
+  // ================= 智能标书 =================
   function renderBid() {
-    setView("AI 标书");
+    setView("智能标书");
     var ps = projects();
-    if (!ps.length) { view.innerHTML = emptyCard("AI 标书", "请先新建投标项目"); return; }
+    if (!ps.length) { view.innerHTML = emptyCard("智能标书", "请先新建投标项目"); return; }
     var p = curProject() || ps[0]; cur.pid = p.id;
     var b = p.basics || {};
     var html = "<div class='grid grid-2'>";
@@ -364,7 +379,7 @@
       "\n· 商务要点：交货期、质保期、售后响应、培训"
     ) + "</div></div>";
     // 技术标
-    html += "<div class='card'><div class='section-title'>技术标创作</div><div class='section-sub'>复用 AI 方案引擎</div>";
+    html += "<div class='card'><div class='section-title'>技术标创作</div><div class='section-sub'>复用 智能方案引擎</div>";
     var imgsB = S.get().materials.images || [];
     var visNB = imgsB.filter(function (im) { return im.desc; }).length;
     html += "<div class='muted' style='font-size:12px'>已生成章节：" + ensureChapters(p).length + " 章" + (visNB ? " · 已融入图库理解 " + visNB + " 张" : "") + (p.darkLabel ? " · 暗标模式" : "") + "</div>";
@@ -376,7 +391,7 @@
     html += "<div class='card'><div class='section-title'>商业标智能填写</div><div class='section-sub'>结合企业资料库一键填空</div>";
     html += "<div class='toolbar'><button class='btn-primary btn-sm' id='b-biz'>打开商务标填空</button></div></div>";
     // 报价
-    html += "<div class='card'><div class='section-title'>AI 报价</div><div class='section-sub'>成本测算 → 建议报价 → 审定填入</div>";
+    html += "<div class='card'><div class='section-title'>智能报价</div><div class='section-sub'>成本测算 → 建议报价 → 审定填入</div>";
     html += "<div class='muted' style='font-size:12px'>" + (p.quote && p.quote.decided ? "已审定报价：" + p.quote.decided + " 元" : "尚未审定报价") + "</div>";
     html += "<div class='toolbar'><button class='btn-primary btn-sm' id='b-quote'>打开报价模块</button></div></div>";
     html += "</div>";
@@ -390,7 +405,7 @@
 
   function renderBizFill(p) {
     var c = S.get().materials.company || {};
-    var html = "<div class='card'><div class='section-title'>商业标一键填空</div><div class='section-sub'>数据来自“企业素材库-企业资料库”，未填处请先在设置/素材库补全</div>";
+    var html = "<div class='card'><div class='section-title'>商业标一键填空</div><div class='section-sub'>数据来自“企业素材-企业资料库”，未填处请先在设置/素材库补全</div>";
     html += "<table class='tbl'><tr><th>投标要素</th><th>填写值</th><th>来源</th></tr>";
     D.bidFillTemplate.forEach(function (t) {
       var v = c[t.k] || "";
@@ -412,7 +427,7 @@
     var pe = document.getElementById("biz-preview"); if (pe) pe.textContent = prev;
   }
 
-  // ================= AI 报价 =================
+  // ================= 智能报价 =================
   function ensureQuote(p) {
     if (!p.quote) {
       var def = {}; D.quoteCostCats.forEach(function (c) { def[c.k] = c.def; });
@@ -424,9 +439,9 @@
   }
 
   function renderQuote() {
-    setView("AI 报价");
+    setView("智能报价");
     var ps = projects();
-    if (!ps.length) { view.innerHTML = emptyCard("AI 报价", "请先新建投标项目"); return; }
+    if (!ps.length) { view.innerHTML = emptyCard("智能报价", "请先新建投标项目"); return; }
     var p = curProject() || ps[0]; cur.pid = p.id;
     var q = ensureQuote(p);
     var b = p.basics || {};
@@ -466,7 +481,7 @@
 
     // 说明
     html += "<div class='card'><div class='section-title'>报价流程说明</div><div class='section-sub'>AI 先出建议价 → 用户结合商务策略审定 → 回填项目，自动进入商务标与完整标书导出</div>";
-    html += "<div class='muted' style='font-size:12.5px;line-height:1.8'>· 招标方：" + (b.buyer || p.buyer || "—") + "；预算/限价：" + (b.budget || "—") + "<br/>· AI 建议价由成本+毛利率测算，并结合招标限价给出封顶提示；审定后不可在标书中随意改动，需留痕。<br/>· 审定值将出现在“AI 标书 → 商务标”与“导出完整 Word 标书”的报价章节。</div></div>";
+    html += "<div class='muted' style='font-size:12.5px;line-height:1.8'>· 招标方：" + (b.buyer || p.buyer || "—") + "；预算/限价：" + (b.budget || "—") + "<br/>· AI 建议价由成本+毛利率测算，并结合招标限价给出封顶提示；审定后不可在标书中随意改动，需留痕。<br/>· 审定值将出现在“智能标书 → 商务标”与“导出完整 Word 标书”的报价章节。</div></div>";
     view.innerHTML = html;
 
     // 事件
@@ -508,11 +523,11 @@
     on("#b-q-docx", "click", function () { SYD.word.exportBid(p); });
   }
 
-  // ================= AI 质检 =================
+  // ================= 智能质检 =================
   function renderQC() {
-    setView("AI 质检");
+    setView("智能质检");
     var ps = projects();
-    if (!ps.length) { view.innerHTML = emptyCard("AI 质检", "请先新建投标项目"); return; }
+    if (!ps.length) { view.innerHTML = emptyCard("智能质检", "请先新建投标项目"); return; }
     var p = curProject() || ps[0]; cur.pid = p.id;
     if (!p.qc) p.qc = { items: [], versions: [] };
 
@@ -534,7 +549,7 @@
     view.innerHTML = html;
 
     on("#b-parse", "click", function () {
-      if (!p.rawText) { U.toast("请先在 AI 方案上传招标文件原文"); return; }
+      if (!p.rawText) { U.toast("请先在 智能方案上传招标文件原文"); return; }
       var items = [];
       D.qcKeywords.forEach(function (q) {
         if (p.rawText.indexOf(q.kw) >= 0) items.push({ id: U.uid(), label: q.label, cat: q.cat, status: "", note: "" });
@@ -646,9 +661,9 @@
   function commonPhrases(a, b) { var sa = shingles(a, 8), sb = shingles(b, 8), out = []; for (var k in sa) if (sb[k]) out.push(k); return out.slice(0, 30); }
   function similarity(a, b) { return { cosine: cosine(a, b), jac: jaccard(a, b), common: commonPhrases(a, b) }; }
 
-  // ================= 企业素材库 =================
+  // ================= 企业素材 =================
   function renderLib() {
-    setView("企业素材库");
+    setView("企业素材");
     var m = S.get().materials;
     var html = "<div class='grid grid-3'>";
     // 知识库
@@ -739,9 +754,9 @@
 
   // ================= 设置 =================
   function renderSettings() {
-    setView("设置");
+    setView("系统设置");
     var ai = S.get().ai;
-    var html = "<div class='card'><div class='section-title'>AI 大模型接入（OpenAI 兼容）</div><div class='section-sub'>填写后“AI 方案/技术标”将调用真实大模型；不填则使用离线模板</div>";
+    var html = "<div class='card'><div class='section-title'>AI 大模型接入（OpenAI 兼容）</div><div class='section-sub'>填写后“智能方案/技术标”将调用真实大模型；不填则使用离线模板</div>";
     html += fld("API Base URL", "ai-url", ai.baseUrl);
     html += fld("API Key", "ai-key", ai.key);
     html += fld("模型名", "ai-model", ai.model);
