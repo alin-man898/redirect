@@ -5,8 +5,107 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>智能投标工作平台 · 孟凡林专属投标工作台</title>
   <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/auth.css" />
 </head>
 <body>
+  <!-- ============ 登录门禁（毛玻璃 · 沉浸式） ============ -->
+  <div id="login-gate" class="login-gate">
+    <div class="login-bg" aria-hidden="true">
+      <span class="lorb l1"></span><span class="lorb l2"></span>
+      <span class="lorb l3"></span><span class="lorb l4"></span>
+      <div class="login-mesh"></div>
+    </div>
+    <div class="login-halo" aria-hidden="true"></div>
+
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="login-logo">标</div>
+        <div>
+          <div class="login-title">智能投标工作平台</div>
+          <div class="login-sub">孟凡林 · 专属投标工作台</div>
+        </div>
+      </div>
+
+      <div class="login-tabs">
+        <button class="ltab active" data-tab="master">主密码登录</button>
+        <button class="ltab" data-tab="code">授权码登录</button>
+      </div>
+
+      <!-- 主密码 -->
+      <div class="ltab-pane" data-pane="master">
+        <label for="master-pw">主密码</label>
+        <input type="password" id="master-pw" placeholder="请输入主密码" autocomplete="off" />
+        <button class="login-btn" id="btn-master-login">进入工作台</button>
+        <button class="login-link" id="btn-open-auth">授权管理 · 生成授权码</button>
+      </div>
+
+      <!-- 授权码 -->
+      <div class="ltab-pane hidden" data-pane="code">
+        <label for="code-input">授权码</label>
+        <input type="text" id="code-input" placeholder="粘贴他人分享的授权码" autocomplete="off" />
+        <div class="login-row">
+          <label class="login-check"><input type="checkbox" id="trust-device" /> 信任此浏览器 7 天</label>
+        </div>
+        <button class="login-btn" id="btn-code-login">验证并进入</button>
+      </div>
+
+      <div class="login-msg" id="login-msg"></div>
+      <div class="login-foot">离线可用 · 数据本地保存 · 纯前端 · <span id="login-clock"></span></div>
+    </div>
+  </div>
+
+  <!-- 授权管理浮动按钮（仅所有者可见） -->
+  <button id="auth-fab" class="auth-fab hidden">⚙ 授权管理</button>
+
+  <!-- 授权管理弹窗 -->
+  <div id="auth-modal" class="auth-modal hidden">
+    <div class="auth-box">
+      <div class="auth-head">
+        <div>
+          <div class="auth-title">授权管理 · 生成授权码</div>
+        </div>
+        <button class="auth-close" id="auth-close">×</button>
+      </div>
+      <div class="auth-sub">生成带有效期的授权码分享给他人。他人在登录页切到“授权码登录”粘贴即可进入，到期自动失效。</div>
+
+      <div class="auth-form">
+        <div class="auth-field">
+          <label>使用时长</label>
+          <select id="auth-dur">
+            <option value="1">1 天</option>
+            <option value="7" selected>7 天</option>
+            <option value="30">30 天</option>
+            <option value="90">90 天</option>
+            <option value="custom">自定义</option>
+          </select>
+        </div>
+        <div class="auth-field sm" style="display:none;">
+          <label>自定义天数</label>
+          <input type="number" id="auth-custom" min="0.1" step="0.1" placeholder="如 15" />
+        </div>
+        <div class="auth-field">
+          <label>备注（可选）</label>
+          <input type="text" id="auth-label" placeholder="如 张某-投标助理" maxlength="20" />
+        </div>
+        <button class="auth-gen-btn" id="auth-gen">生成授权码</button>
+      </div>
+
+      <div class="auth-code-box" id="auth-code-box" style="display:none;">
+        <div class="auth-code-text" id="auth-code-text"></div>
+        <button class="auth-copy" id="auth-copy">复制</button>
+      </div>
+
+      <div class="auth-divider"></div>
+      <div class="auth-list-title">已生成的授权码</div>
+      <div class="auth-list" id="auth-list"></div>
+
+      <div class="auth-note">
+        说明（纯前端方案）：授权码含过期时间与 SHA-256 签名，无法被篡改或伪造。校验在浏览器端完成。<br/>
+        “本机作废”仅在本机生效；若要全局使某码失效，请让其自然到期，或改源码 SECRET/KEY_VERSION 后重新部署（将令所有旧码失效）。
+      </div>
+    </div>
+  </div>
+
   <!-- 动态玻璃背景光晕 -->
   <div class="bg-orbs" aria-hidden="true">
     <span class="orb o1"></span>
@@ -78,6 +177,7 @@
   <script src="js/pdfparse.js"></script>
   <script src="js/word-export.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/auth.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>
