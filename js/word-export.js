@@ -144,7 +144,7 @@
     // 技术方案
     chs.forEach(function (c, i) {
       body += heading((i + 1) + ". " + c.name, 1);
-      body += para(multiLine(c.content && c.content.trim() ? c.content : "（本章内容尚未生成，请在“AI 方案”模块批量生成后重新导出）"));
+      body += para(multiLine(c.content && c.content.trim() ? c.content : "（本章内容尚未生成，请在“智能方案”模块批量生成后重新导出）"));
     });
     // 商务标
     body += heading("商务标响应", 1);
