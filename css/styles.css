@@ -119,7 +119,7 @@ html[data-theme="dark"] .orb { opacity: 0.40; }
 
 /* 版权提示（禁右键跟随显示） */
 #copyright-tip {
-  position: fixed; z-index: 2000; transform: translate(-50%, -130%);
+  position: fixed; z-index: 99999; transform: translate(-50%, -130%);
   background: rgba(20,27,40,0.94); color: #fff; padding: 8px 17px; border-radius: 10px;
   font-size: 13px; font-weight: 600; letter-spacing: .5px; white-space: nowrap;
   box-shadow: 0 10px 30px rgba(0,0,0,0.42); border: 1px solid rgba(255,255,255,0.14);
