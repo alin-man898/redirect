@@ -1,0 +1,227 @@
+/* =========================================================
+   智能投标工作平台 · 登录门禁（毛玻璃 · 沉浸式）
+   复用平台设计语言，独立成文件，不改动既有功能
+   微软雅黑 / 动态光斑 / 旋转光环 / 现代创意
+   ========================================================= */
+
+/* ---------- 门禁容器 ---------- */
+.login-gate {
+  position: fixed; inset: 0; z-index: 9000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; overflow: hidden;
+  background: radial-gradient(125% 125% at 50% 0%, #1b2247 0%, #0c1126 52%, #060912 100%);
+  color: #eaf0fb;
+  animation: gateIn .5s ease;
+}
+.login-gate.hidden { display: none; }
+@keyframes gateIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* 动态光斑 / 网格背景 */
+.login-bg { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.login-mesh {
+  position: absolute; inset: -25%;
+  background:
+    radial-gradient(38% 38% at 22% 24%, rgba(47,107,255,.55), transparent 60%),
+    radial-gradient(44% 44% at 80% 18%, rgba(124,92,255,.50), transparent 60%),
+    radial-gradient(50% 50% at 72% 82%, rgba(0,194,168,.45), transparent 60%),
+    radial-gradient(40% 40% at 24% 86%, rgba(255,138,92,.32), transparent 60%);
+  filter: blur(42px) saturate(140%);
+  animation: meshMove 19s ease-in-out infinite alternate;
+}
+@keyframes meshMove {
+  0%   { transform: translate(0,0) scale(1); }
+  50%  { transform: translate(3%,-2%) scale(1.09); }
+  100% { transform: translate(-2%,2%) scale(1.04); }
+}
+.lorb { position: absolute; border-radius: 50%; filter: blur(60px); opacity: .6; animation: lfloat 16s ease-in-out infinite; }
+.l1 { width: 420px; height: 420px; background: radial-gradient(circle, #5b8cff, transparent 70%); top: -120px; left: -80px; }
+.l2 { width: 480px; height: 480px; background: radial-gradient(circle, #7c5cff, transparent 70%); bottom: -160px; right: -100px; animation-delay: -4s; }
+.l3 { width: 360px; height: 360px; background: radial-gradient(circle, #00c2a8, transparent 70%); top: 30%; left: 60%; animation-delay: -8s; }
+.l4 { width: 300px; height: 300px; background: radial-gradient(circle, #ff8a5c, transparent 70%); top: 66%; left: 8%; opacity: .4; animation-delay: -12s; }
+@keyframes lfloat {
+  0%, 100% { transform: translate(0,0) scale(1); }
+  33%      { transform: translate(42px,-30px) scale(1.1); }
+  66%      { transform: translate(-30px,26px) scale(.95); }
+}
+
+/* 卡片背后旋转光环（创意元素） */
+.login-halo {
+  position: absolute; width: 540px; height: 540px; border-radius: 50%;
+  background: conic-gradient(from 0deg, rgba(47,107,255,.55), rgba(124,92,255,.5), rgba(0,194,168,.5), rgba(47,107,255,.55));
+  filter: blur(64px); opacity: .45; animation: spin 16s linear infinite; pointer-events: none;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- 登录卡片 ---------- */
+.login-card {
+  position: relative; z-index: 2; width: 410px; max-width: 100%;
+  padding: 30px 30px 22px; border-radius: 22px;
+  background: rgba(255,255,255,.10);
+  backdrop-filter: blur(28px) saturate(180%); -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(255,255,255,.22);
+  box-shadow: 0 32px 84px rgba(0,0,0,.58), inset 0 1px 0 rgba(255,255,255,.26);
+  animation: cardIn .55s cubic-bezier(.2,.9,.3,1.2);
+}
+@keyframes cardIn { from { opacity: 0; transform: translateY(28px) scale(.96); } to { opacity: 1; transform: none; } }
+/* 渐变描边 */
+.login-card::before {
+  content: ""; position: absolute; inset: 0; border-radius: 22px; padding: 1px;
+  background: linear-gradient(135deg, rgba(255,255,255,.55), transparent 42%, rgba(124,92,255,.5));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none;
+}
+
+/* 品牌 */
+.login-brand { display: flex; align-items: center; gap: 13px; margin-bottom: 22px; }
+.login-logo {
+  width: 44px; height: 44px; border-radius: 13px; flex: 0 0 44px;
+  background: linear-gradient(135deg, #2f6bff, #5b8cff 55%, #00c2a8);
+  color: #fff; font-weight: 800; font-size: 23px; display: grid; place-items: center;
+  box-shadow: 0 8px 20px rgba(47,107,255,.45);
+}
+.login-title {
+  font-size: 17px; font-weight: 800; letter-spacing: .4px;
+  background: linear-gradient(100deg, #cfe0ff, #b9a8ff 60%, #9af0dd);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+.login-sub { font-size: 11.5px; color: #9fb0d0; margin-top: 1px; letter-spacing: .3px; }
+
+/* 选项卡（分段控件） */
+.login-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 13px;
+  background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12); margin-bottom: 18px; }
+.ltab {
+  flex: 1; background: none; border: none; color: #aab8d6; cursor: pointer;
+  padding: 9px 0; border-radius: 10px; font-size: 13px; font-weight: 700; font-family: inherit;
+  transition: all .18s ease;
+}
+.ltab.active { background: linear-gradient(120deg, #2f6bff, #5b8cff); color: #fff; box-shadow: 0 6px 16px rgba(47,107,255,.4); }
+
+.ltab-pane.hidden { display: none; }
+
+/* 输入 */
+.login-gate label { font-size: 12px; color: #aeb9d6; display: block; margin: 0 0 6px; font-weight: 600; }
+.login-gate input[type="text"], .login-gate input[type="password"] {
+  width: 100%; font-family: inherit; font-size: 14px; color: #fff;
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.16);
+  border-radius: 12px; padding: 12px 14px; transition: all .18s ease;
+}
+.login-gate input::placeholder { color: #7e8cab; }
+.login-gate input:focus {
+  outline: none; border-color: #5b8cff;
+  box-shadow: 0 0 0 4px rgba(91,140,255,.20); background: rgba(255,255,255,.12);
+}
+
+/* 主按钮 */
+.login-btn {
+  width: 100%; margin-top: 16px; border: none; cursor: pointer;
+  background: linear-gradient(120deg, #2f6bff, #5b8cff 60%, #00c2a8);
+  color: #fff; font-size: 14px; font-weight: 800; font-family: inherit; letter-spacing: .5px;
+  padding: 13px 0; border-radius: 13px; box-shadow: 0 10px 26px rgba(47,107,255,.42);
+  transition: all .18s ease;
+}
+.login-btn:hover { transform: translateY(-1px); filter: brightness(1.06); box-shadow: 0 14px 32px rgba(47,107,255,.5); }
+.login-btn:active { transform: translateY(0); }
+
+.login-link {
+  width: 100%; margin-top: 12px; background: none; border: none; cursor: pointer;
+  color: #9fb0d0; font-size: 12.5px; font-family: inherit; text-decoration: underline; text-underline-offset: 3px;
+  transition: color .18s ease;
+}
+.login-link:hover { color: #cfe0ff; }
+
+.login-row { margin-top: 12px; }
+.login-check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #aeb9d6; margin: 0; cursor: pointer; }
+.login-check input { width: auto; margin: 0; }
+
+/* 行内提示 */
+.login-msg { margin-top: 12px; font-size: 12.5px; font-weight: 600; min-height: 17px; line-height: 1.5; }
+.login-msg.err { color: #ff8e8e; }
+.login-msg.ok { color: #6ef0c0; }
+
+.login-foot { margin-top: 18px; text-align: center; font-size: 11px; color: #7e8cab; letter-spacing: .3px; }
+#login-clock { color: #9fb0d0; }
+
+/* ---------- 授权管理 弹窗 ---------- */
+.auth-modal {
+  position: fixed; inset: 0; z-index: 9500; display: flex; align-items: center; justify-content: center;
+  padding: 20px; background: rgba(6,9,18,.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  animation: gateIn .25s ease;
+}
+.auth-modal.hidden { display: none; }
+.auth-box {
+  width: 560px; max-width: 100%; max-height: 88vh; overflow-y: auto;
+  border-radius: 20px; padding: 26px;
+  background: rgba(20,27,44,.78); backdrop-filter: blur(28px) saturate(180%); -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(255,255,255,.16); box-shadow: 0 30px 80px rgba(0,0,0,.6);
+  animation: cardIn .3s ease;
+}
+.auth-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
+.auth-title { font-size: 17px; font-weight: 800; color: #eaf0fb; }
+.auth-sub { font-size: 12px; color: #9fb0d0; margin: 4px 0 18px; line-height: 1.6; }
+.auth-close { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); color: #cfe0ff;
+  width: 30px; height: 30px; border-radius: 9px; cursor: pointer; font-size: 16px; line-height: 1; font-family: inherit; }
+.auth-close:hover { background: rgba(255,255,255,.16); }
+
+.auth-form { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 8px; }
+.auth-field { flex: 1; min-width: 150px; }
+.auth-field.sm { flex: 0 0 130px; }
+.auth-field label { font-size: 12px; color: #aeb9d6; margin: 0 0 6px; display: block; font-weight: 600; }
+.auth-field input, .auth-field select {
+  width: 100%; font-family: inherit; font-size: 13px; color: #fff;
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.16); border-radius: 11px; padding: 10px 12px;
+}
+.auth-field select { cursor: pointer; }
+.auth-field input:focus, .auth-field select:focus { outline: none; border-color: #5b8cff; box-shadow: 0 0 0 4px rgba(91,140,255,.18); }
+
+.auth-gen-btn {
+  flex: 0 0 auto; border: none; cursor: pointer; font-family: inherit; font-weight: 800; font-size: 13px; color: #fff;
+  background: linear-gradient(120deg, #2f6bff, #5b8cff); padding: 11px 18px; border-radius: 11px;
+  box-shadow: 0 8px 20px rgba(47,107,255,.4); transition: all .18s ease;
+}
+.auth-gen-btn:hover { transform: translateY(-1px); filter: brightness(1.05); }
+
+/* 生成的码展示 */
+.auth-code-box {
+  margin: 14px 0 6px; padding: 14px 16px; border-radius: 13px;
+  background: rgba(47,107,255,.10); border: 1px dashed rgba(91,140,255,.5);
+  display: flex; align-items: center; gap: 12px;
+}
+.auth-code-text { flex: 1; font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 13px;
+  color: #cfe0ff; word-break: break-all; line-height: 1.5; }
+.auth-copy { flex: 0 0 auto; border: none; cursor: pointer; font-family: inherit; font-weight: 700; font-size: 12px; color: #fff;
+  background: linear-gradient(120deg, #00c2a8, #21d6b8); padding: 8px 14px; border-radius: 10px; }
+.auth-copy:hover { filter: brightness(1.06); }
+
+.auth-divider { height: 1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,.18), transparent); margin: 18px 0 14px; }
+.auth-list-title { font-size: 13px; font-weight: 700; color: #cfe0ff; margin-bottom: 10px; }
+.auth-list { display: flex; flex-direction: column; gap: 9px; }
+.auth-item { padding: 12px 14px; border-radius: 12px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.10); }
+.auth-item.expired { opacity: .55; }
+.auth-item-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.auth-item-label { font-size: 13.5px; font-weight: 700; color: #eaf0fb; }
+.auth-item-meta { font-size: 11.5px; color: #9fb0d0; margin-top: 3px; }
+.auth-item-actions { display: flex; gap: 8px; margin-top: 10px; }
+.auth-mini { border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.06); color: #cfe0ff; cursor: pointer;
+  font-family: inherit; font-size: 11.5px; font-weight: 600; padding: 5px 11px; border-radius: 8px; transition: all .15s ease; }
+.auth-mini:hover { border-color: #5b8cff; color: #fff; }
+.auth-mini.danger:hover { border-color: #ff6b6b; color: #ff9a9a; background: rgba(255,107,107,.12); }
+.auth-empty { text-align: center; color: #7e8cab; font-size: 12.5px; padding: 22px 0; }
+.auth-note { margin-top: 16px; font-size: 11px; color: #7e8cab; line-height: 1.6; border-top: 1px dashed rgba(255,255,255,.12); padding-top: 12px; }
+
+/* 授权管理浮动按钮（仅所有者可见） */
+.auth-fab {
+  position: fixed; right: 18px; bottom: 18px; z-index: 8000;
+  display: flex; align-items: center; gap: 8px; cursor: pointer; font-family: inherit;
+  background: rgba(20,27,44,.7); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,.18); color: #cfe0ff;
+  padding: 10px 15px; border-radius: 30px; font-size: 12.5px; font-weight: 700;
+  box-shadow: 0 10px 28px rgba(0,0,0,.45); transition: all .18s ease;
+}
+.auth-fab:hover { transform: translateY(-2px); border-color: #5b8cff; color: #fff; }
+.auth-fab.hidden { display: none; }
+
+/* 响应式 */
+@media (max-width: 520px) {
+  .login-card { padding: 24px 20px 18px; }
+  .auth-box { padding: 20px; }
+}
