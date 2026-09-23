@@ -75,15 +75,10 @@
       tip._t = setTimeout(function () { tip.classList.remove("show"); }, 2000);
     }
     document.addEventListener("contextmenu", function (e) {
-      // 全站统一：右键即显示「版权所有人：梵音未改」文字跟随特效
+      // 全站统一（含登录门禁/授权弹窗/输入框界面）：禁右键原生菜单 + 显示「版权所有人：梵音未改」文字跟随特效
+      // 复制/粘贴/剪切/全选不受影响：用键盘快捷键 Ctrl+C / Ctrl+V / Ctrl+X / Ctrl+A（键盘与右键菜单相互独立）
+      e.preventDefault();
       showTip(e.clientX, e.clientY);
-      // 登录门禁 / 授权弹窗 / 输入控件内：放行原生右键菜单，允许复制/粘贴/剪切/全选
-      var t = e.target;
-      var ed = t.getAttribute && t.getAttribute("contenteditable") === "true";
-      var inZone = t.closest && (t.closest("#login-gate") || t.closest("#auth-modal"));
-      var isField = t.tagName && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
-      if (inZone || isField || ed) return; // 不拦截：保留原生菜单（可复制粘贴剪切全选）+ 上方已显示跟随特效
-      e.preventDefault(); // 平台正文区：禁右键（菜单不出）+ 跟随特效已显示
     });
     document.addEventListener("click", function () { if (tip) tip.classList.remove("show"); });
   })();
