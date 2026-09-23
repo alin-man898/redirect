@@ -232,8 +232,12 @@
     if (!code) { showMsg("请粘贴授权码", "err"); return; }
     const r = verifyCode(code);
     if (!r.ok) { showMsg(r.reason, "err"); return; }
+    const trust = $("#trust-device") && $("#trust-device").checked;
     const ttl = Math.min(r.payload.exp - Date.now(), TRUST_TTL);
     saveSession("guest", Math.max(ttl, 60000), r.payload.label);
+    if (trust) {
+      try { localStorage.setItem(LKEY_TRUST, JSON.stringify({ role: "guest", exp: r.payload.exp, label: r.payload.label, ts: Date.now() })); } catch (e) {}
+    }
     showMsg("授权码有效，正在进入…", "ok");
     setTimeout(function () { closeGate(); }, 260);
   }
@@ -371,9 +375,8 @@
 
   /* ====== 退出登录（彻底销毁当前会话并回到登录界面，无需关闭浏览器） ====== */
   function doLogout() {
-    // 清除本次会话（sessionStorage）+ 任何“信任此浏览器”长期状态（localStorage），确保退出后刷新/重开都必须重新登录
+    // 清除本次会话（sessionStorage），回到登录界面
     try { sessionStorage.removeItem("sy_auth_session"); } catch (e) {}
-    try { localStorage.removeItem(LKEY_TRUST); } catch (e) {}
     closeModal();
     ["#master-pw", "#code-input", "#recovery-input"].forEach(function (s) { const el = $(s); if (el) el.value = ""; });
     if (fab) fab.classList.add("hidden");
