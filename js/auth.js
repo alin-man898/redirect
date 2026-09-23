@@ -375,8 +375,9 @@
 
   /* ====== 退出登录（彻底销毁当前会话并回到登录界面，无需关闭浏览器） ====== */
   function doLogout() {
-    // 清除本次会话（sessionStorage），回到登录界面
+    // 清除本次会话（sessionStorage）+ “信任此浏览器”长期状态（localStorage）：点退出=彻底登出，刷新/重开都需重新登录
     try { sessionStorage.removeItem("sy_auth_session"); } catch (e) {}
+    try { localStorage.removeItem(LKEY_TRUST); } catch (e) {}
     closeModal();
     ["#master-pw", "#code-input", "#recovery-input"].forEach(function (s) { const el = $(s); if (el) el.value = ""; });
     if (fab) fab.classList.add("hidden");
