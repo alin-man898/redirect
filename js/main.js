@@ -75,6 +75,12 @@
       tip._t = setTimeout(function () { tip.classList.remove("show"); }, 2000);
     }
     document.addEventListener("contextmenu", function (e) {
+      // 登录门禁、授权弹窗、输入控件内放行原生右键，允许复制/粘贴/剪切/全选
+      var t = e.target;
+      var ed = t.getAttribute && t.getAttribute("contenteditable") === "true";
+      var inZone = t.closest && (t.closest("#login-gate") || t.closest("#auth-modal"));
+      var isField = t.tagName && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
+      if (inZone || isField || ed) return; // 不拦截，使用浏览器原生右键菜单
       e.preventDefault();
       showTip(e.clientX, e.clientY);
     });
