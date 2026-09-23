@@ -26,6 +26,12 @@
         </div>
       </div>
 
+      <!-- 实时时钟（顶部显著展示，不遮挡其他功能） -->
+      <div class="login-clock" id="login-clock-box">
+        <div class="login-clock-time" id="login-clock-time">--:--:--</div>
+        <div class="login-clock-date" id="login-clock-date"></div>
+      </div>
+
       <!-- 首次初始化面板（本机未设过主密码时显示） -->
       <div id="init-pane" class="hidden">
         <div class="login-sub">首次使用 · 设置所有权人主密码</div>
@@ -83,7 +89,7 @@
 
       <div class="login-msg" id="login-msg"></div>
       <div class="login-sub sm">复制 / 粘贴 / 剪切 / 全选请用键盘：Ctrl+C · Ctrl+V · Ctrl+X · Ctrl+A</div>
-      <div class="login-foot">离线可用 · 数据本地保存 · 纯前端 · <span id="login-clock"></span></div>
+      <div class="login-foot">离线可用 · 数据本地保存 · 纯前端</div>
       </div><!-- /login-area -->
 
       <!-- 重设本机主密码面板（恢复码登录后） -->
