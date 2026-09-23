@@ -225,3 +225,32 @@
   .login-card { padding: 24px 20px 18px; }
   .auth-box { padding: 20px; }
 }
+
+/* ---------- 初始化 / 重设面板专属样式 ---------- */
+.login-gate .hidden { display: none !important; }
+
+#init-pane .login-sub, #reset-pane .login-sub {
+  font-size: 13px; color: #b9c6e6; margin: 0 0 16px; text-align: center; letter-spacing: .3px;
+}
+
+/* 恢复码提示与列表 */
+.recovery-tip {
+  font-size: 12.5px; color: #cfe0ff; line-height: 1.7; margin-bottom: 14px;
+  padding: 12px 14px; border-radius: 12px;
+  background: rgba(47,107,255,.12); border: 1px solid rgba(91,140,255,.35);
+}
+.recovery-tip strong { color: #9af0dd; }
+.recovery-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.recovery-code {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: 11px;
+  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
+}
+.recovery-code code {
+  flex: 1; font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 12.5px; color: #9af0dd; letter-spacing: .5px; word-break: break-all;
+}
+.recovery-code .auth-mini { flex: 0 0 auto; }
+
+/* 小字提示 */
+.login-sub.sm { font-size: 10.5px; color: #8a99bd; margin-top: 10px; line-height: 1.5; }
