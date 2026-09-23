@@ -373,6 +373,18 @@
     else { openGate(); showMsg("请先使用主密码登录", "err"); const e = $("#master-pw"); if (e) e.focus(); }
   }
 
+  /* ====== 退出登录（销毁当前会话并回到登录界面，无需关闭浏览器） ====== */
+  function doLogout() {
+    try { sessionStorage.removeItem("sy_auth_session"); } catch (e) {}
+    closeModal();
+    ["#master-pw", "#code-input", "#recovery-input"].forEach(function (s) { const el = $(s); if (el) el.value = ""; });
+    if (fab) fab.classList.add("hidden");
+    showMsg("", "");
+    openGate();
+    const mp = $("#master-pw"); if (mp) mp.focus();
+    toast("已退出登录");
+  }
+
   /* ====== 初始化 ====== */
   function init() {
     gate = $("#login-gate"); msgEl = $("#login-msg"); clockEl = $("#login-clock");
@@ -446,6 +458,9 @@
     // 授权管理入口
     $("#btn-open-auth").addEventListener("click", function () { requireOwner(openModal); });
     if (fab) fab.addEventListener("click", function () { requireOwner(openModal); });
+
+    // 退出登录（无需关闭浏览器即可回到登录界面）
+    $("#btn-logout").addEventListener("click", doLogout);
 
     // 弹窗
     $("#auth-close").addEventListener("click", closeModal);
