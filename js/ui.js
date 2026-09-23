@@ -187,7 +187,7 @@
   function renderPlan() {
     setView("智能方案");
     var ps = projects();
-    if (!ps.length) { view.innerHTML = emptyCard("智能方案", "请先在右上角新建投标项目"); return; }
+    if (!ps.length) { renderModuleEmpty("✎", "智能方案", "三种模式（快速/快捷评分/定制）+ 工业产品类项目规划 + 目录生成 + 批量成稿，一键导出 Word", ["新建项目", "上传招标文件", "选择模式", "智能提取信息", "生成项目规划", "生成目录", "批量生成", "导出 Word"]); return; }
     var p = curProject() || ps[0]; cur.pid = p.id;
 
     var steps = ["新建项目", "上传招标文件", "选择模式", "智能提取信息", "生成项目规划", "生成目录", "目录预览", "选择篇幅", "批量生成", "导出"];
@@ -365,7 +365,7 @@
   function renderBid() {
     setView("智能标书");
     var ps = projects();
-    if (!ps.length) { view.innerHTML = emptyCard("智能标书", "请先新建投标项目"); return; }
+    if (!ps.length) { renderModuleEmpty("▣", "智能标书", "招标解读 / 技术标创作 / 商务标一键填空（结合企业资料库），与智能方案数据贯通", ["新建项目", "智能提取招标信息", "项目解读", "技术标创作", "商务标一键填空", "导出标书"]); return; }
     var p = curProject() || ps[0]; cur.pid = p.id;
     var b = p.basics || {};
     var html = "<div class='grid grid-2'>";
@@ -441,7 +441,7 @@
   function renderQuote() {
     setView("智能报价");
     var ps = projects();
-    if (!ps.length) { view.innerHTML = emptyCard("智能报价", "请先新建投标项目"); return; }
+    if (!ps.length) { renderModuleEmpty("¥", "智能报价", "成本测算 → AI 建议报价 → 你审定后填入 → 贯通商务标与导出（AI 只建议，定价权在你）", ["新建项目", "录入成本构成", "AI 建议报价", "审定并填入", "贯通商务标", "导出报价单"]); return; }
     var p = curProject() || ps[0]; cur.pid = p.id;
     var q = ensureQuote(p);
     var b = p.basics || {};
@@ -527,7 +527,7 @@
   function renderQC() {
     setView("智能质检");
     var ps = projects();
-    if (!ps.length) { view.innerHTML = emptyCard("智能质检", "请先新建投标项目"); return; }
+    if (!ps.length) { renderModuleEmpty("✔", "智能质检", "招标文件解析 → 质检项抽取 → 多版本对比 → 自定义配置，可视化报告", ["新建项目", "解析招标文件", "抽取质检项", "逐项核查", "多版本对比", "可视化报告"]); return; }
     var p = curProject() || ps[0]; cur.pid = p.id;
     if (!p.qc) p.qc = { items: [], versions: [] };
 
@@ -823,6 +823,23 @@
   }
 
   function emptyCard(t, sub) { return "<div class='card'><div class='section-title'>" + t + "</div><div class='empty'>" + sub + "</div></div>"; }
+
+  /* 模块空状态引导页：无投标项目时不再只显示一句话，而是完整展示模块能力与工作流，并提供直达新建按钮 */
+  function renderModuleEmpty(icon, name, intro, steps) {
+    var h = "<div class='card' style='padding:26px 28px'>";
+    h += "<div style='display:flex;align-items:center;gap:14px'>";
+    h += "<div class='mod-ico' style='width:48px;height:48px;font-size:22px;border-radius:14px;flex:0 0 48px;background:linear-gradient(135deg,var(--primary),var(--accent-2))'>" + icon + "</div>";
+    h += "<div><div class='section-title' style='font-size:18px;margin:0 0 4px'>" + name + "</div><div class='section-sub'>" + intro + "</div></div></div>";
+    h += "<div class='steps' style='margin-top:18px'>";
+    steps.forEach(function (s, i) { h += "<div class='step'><span class='snum'>" + (i + 1) + "</span>" + s + "</div>"; });
+    h += "</div>";
+    h += "<div class='empty' style='margin-top:16px'>当前还没有投标项目。新建一个项目，本模块即可开始工作。</div>";
+    h += "<div style='margin-top:12px'><button class='btn-primary' id='empty-new'>＋ 新建投标项目，立即开始</button></div>";
+    h += "</div>";
+    view.innerHTML = h;
+    var b = view.querySelector("#empty-new");
+    if (b) b.addEventListener("click", function () { var t = document.getElementById("btn-new-project"); if (t) t.click(); });
+  }
 
   function updateAIStatus() {
     var el = document.getElementById("ai-status"); if (!el) return;
