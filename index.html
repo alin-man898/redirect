@@ -26,9 +26,33 @@
         </div>
       </div>
 
+      <!-- 首次初始化面板（本机未设过主密码时显示） -->
+      <div id="init-pane" class="hidden">
+        <div class="login-sub">首次使用 · 设置所有权人主密码</div>
+        <div id="init-form">
+          <label for="init-token">所有权人初始令牌</label>
+          <input type="password" id="init-token" placeholder="请输入初始令牌" autocomplete="off" />
+          <label for="init-pw">设置主密码（≥6位）</label>
+          <input type="password" id="init-pw" placeholder="设置你的主密码" autocomplete="off" />
+          <label for="init-pw2">确认主密码</label>
+          <input type="password" id="init-pw2" placeholder="再次输入" autocomplete="off" />
+          <button class="login-btn" id="btn-init">完成初始化</button>
+          <button class="login-link" id="btn-have-recovery" style="text-align:center;">已有恢复码？换设备点此恢复</button>
+          <div class="login-msg" id="init-msg"></div>
+        </div>
+        <div id="init-recovery" class="hidden">
+          <div class="recovery-tip">初始化完成！请<strong>抄下这组恢复码</strong>妥善保存。换设备 / 清缓存后，用它登录并重设本机主密码。</div>
+          <div class="recovery-list" id="init-recovery-list"></div>
+          <button class="login-btn hidden" id="btn-init-enter">进入工作台</button>
+        </div>
+      </div>
+
+      <!-- 正常登录区 -->
+      <div id="login-area">
       <div class="login-tabs">
         <button class="ltab active" data-tab="master">主密码登录</button>
         <button class="ltab" data-tab="code">授权码登录</button>
+        <button class="ltab" data-tab="recovery">恢复码登录</button>
       </div>
 
       <!-- 主密码 -->
@@ -49,10 +73,30 @@
         <button class="login-btn" id="btn-code-login">验证并进入</button>
       </div>
 
+      <!-- 恢复码 -->
+      <div class="ltab-pane hidden" data-pane="recovery">
+        <label for="recovery-input">恢复码</label>
+        <input type="text" id="recovery-input" placeholder="粘贴你保存的恢复码" autocomplete="off" />
+        <button class="login-btn" id="btn-recovery-login">验证并继续</button>
+        <div class="login-sub sm">恢复码用于换设备自救：验证通过后将引导你设置本机主密码。</div>
+      </div>
+
       <div class="login-msg" id="login-msg"></div>
       <div class="login-foot">离线可用 · 数据本地保存 · 纯前端 · <span id="login-clock"></span></div>
-    </div>
-  </div>
+      </div><!-- /login-area -->
+
+      <!-- 重设本机主密码面板（恢复码登录后） -->
+      <div id="reset-pane" class="hidden">
+        <div class="login-sub">恢复码验证通过 · 设置本机主密码</div>
+        <label for="reset-pw">新主密码（≥6位）</label>
+        <input type="password" id="reset-pw" placeholder="设置本机主密码" autocomplete="off" />
+        <label for="reset-pw2">确认新主密码</label>
+        <input type="password" id="reset-pw2" placeholder="再次输入" autocomplete="off" />
+        <button class="login-btn" id="btn-reset">重设并进入</button>
+        <div class="login-msg" id="reset-msg"></div>
+      </div>
+    </div><!-- /login-card -->
+  </div><!-- /login-gate -->
 
   <!-- 授权管理浮动按钮（仅所有者可见） -->
   <button id="auth-fab" class="auth-fab hidden">⚙ 授权管理</button>
@@ -98,6 +142,12 @@
       <div class="auth-divider"></div>
       <div class="auth-list-title">已生成的授权码</div>
       <div class="auth-list" id="auth-list"></div>
+
+      <div class="auth-divider"></div>
+      <div class="auth-list-title">我的恢复码（换设备自救用）</div>
+      <div class="recovery-list" id="auth-recovery-list"></div>
+      <button class="auth-gen-btn" id="auth-regen-recovery" style="margin-top:8px;">重新生成恢复码</button>
+      <div class="auth-note" style="margin-top:6px;">重新生成后，旧恢复码立即作废，请重新抄存新码。</div>
 
       <div class="auth-note">
         说明（纯前端方案）：授权码含过期时间与 SHA-256 签名，无法被篡改或伪造。校验在浏览器端完成。<br/>
