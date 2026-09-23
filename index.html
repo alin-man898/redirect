@@ -185,21 +185,20 @@
         </div>
       </div>
       <nav class="nav" id="nav">
+        <div class="nav-group">工作空间</div>
         <button class="nav-item active" data-view="dashboard"><span class="nav-ico">◆</span>工作中心</button>
+        <div class="nav-group">智能工具链</div>
         <button class="nav-item" data-view="plan"><span class="nav-ico">✎</span>智能方案</button>
         <button class="nav-item" data-view="bid"><span class="nav-ico">▣</span>智能标书</button>
         <button class="nav-item" data-view="quote"><span class="nav-ico">¥</span>智能报价</button>
         <button class="nav-item" data-view="qc"><span class="nav-ico">✔</span>智能质检</button>
         <button class="nav-item" data-view="dup"><span class="nav-ico">⊞</span>方案查重</button>
         <button class="nav-item" data-view="lib"><span class="nav-ico">▤</span>企业素材</button>
-        <button class="nav-item" data-view="settings"><span class="nav-ico">⚙</span>系统设置</button>
+        <div class="nav-group">系统</div>
+        <button class="nav-item nav-bottom" data-view="settings"><span class="nav-ico">⚙</span>系统设置</button>
       </nav>
       <div class="sidebar-foot">
         <div class="hint">离线可用 · 数据本地保存 · 纯前端</div>
-        <div class="sidebar-actions">
-          <button class="btn-ghost" id="btn-theme">切换主题</button>
-          <button class="btn-ghost danger" id="btn-logout">退出登录</button>
-        </div>
       </div>
     </aside>
 
@@ -210,6 +209,8 @@
         <div class="topbar-actions">
           <span class="ai-status" id="ai-status">AI：未配置</span>
           <button class="btn-primary" id="btn-new-project">+ 新建投标项目</button>
+          <button class="btn-ghost tb-btn" id="btn-theme"><span class="tb-ico">◐</span>切换主题</button>
+          <button class="btn-ghost tb-btn tb-danger" id="btn-logout"><span class="tb-ico">⏻</span>退出登录</button>
         </div>
       </header>
       <section class="view" id="view"><!-- 动态渲染 --></section>
