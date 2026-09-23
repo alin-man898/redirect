@@ -54,8 +54,8 @@
 
 /* ---------- 登录卡片 ---------- */
 .login-card {
-  position: relative; z-index: 2; width: 410px; max-width: 100%;
-  padding: 30px 30px 22px; border-radius: 22px;
+  position: relative; z-index: 2; width: 420px; max-width: 100%;
+  padding: 32px 34px 24px; border-radius: 22px;
   background: rgba(255,255,255,.10);
   backdrop-filter: blur(28px) saturate(180%); -webkit-backdrop-filter: blur(28px) saturate(180%);
   border: 1px solid rgba(255,255,255,.22);
@@ -72,7 +72,7 @@
 }
 
 /* 品牌 */
-.login-brand { display: flex; align-items: center; gap: 13px; margin-bottom: 22px; }
+.login-brand { display: flex; align-items: center; gap: 13px; margin-bottom: 16px; }
 .login-logo {
   width: 44px; height: 44px; border-radius: 13px; flex: 0 0 44px;
   background: linear-gradient(135deg, #2f6bff, #5b8cff 55%, #00c2a8);
@@ -80,11 +80,11 @@
   box-shadow: 0 8px 20px rgba(47,107,255,.45);
 }
 .login-title {
-  font-size: 17px; font-weight: 800; letter-spacing: .4px;
+  font-size: 18px; font-weight: 800; letter-spacing: 1px;
   background: linear-gradient(100deg, #cfe0ff, #b9a8ff 60%, #9af0dd);
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
-.login-sub { font-size: 11.5px; color: #9fb0d0; margin-top: 1px; letter-spacing: .3px; }
+.login-sub { font-size: 11px; color: #9fb0d0; margin-top: 2px; letter-spacing: 1.2px; }
 
 /* 选项卡（分段控件） */
 .login-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 13px;
@@ -99,7 +99,7 @@
 .ltab-pane.hidden { display: none; }
 
 /* 输入 */
-.login-gate label { font-size: 12px; color: #aeb9d6; display: block; margin: 0 0 6px; font-weight: 600; }
+.login-gate label { font-size: 11.5px; color: #b9c6e6; display: block; margin: 0 0 7px; font-weight: 600; letter-spacing: .3px; }
 .login-gate input[type="text"], .login-gate input[type="password"] {
   width: 100%; font-family: inherit; font-size: 14px; color: #fff;
   background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.16);
@@ -138,18 +138,28 @@
 .login-msg.err { color: #ff8e8e; }
 .login-msg.ok { color: #6ef0c0; }
 
-.login-foot { margin-top: 18px; text-align: center; font-size: 11px; color: #7e8cab; letter-spacing: .3px; }
+.login-foot { margin-top: 16px; text-align: center; font-size: 10.5px; color: #7e8cab; letter-spacing: .8px; }
 
-/* 顶部显著实时时钟（用户要求的"优点"） */
-.login-clock { text-align: center; margin: 4px 0 20px; user-select: none; }
+/* 细分割线（头部 / 表单之间，提升结构质感） */
+.login-divider { height: 1px; margin: 0 0 20px; background: linear-gradient(90deg, transparent, rgba(255,255,255,.22), transparent); }
+
+/* 操作提示（右键菜单 或 键盘快捷键） */
+.login-hint {
+  margin-top: 14px; padding: 9px 12px; border-radius: 11px;
+  background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.10);
+  font-size: 10.5px; color: #9fb0d0; line-height: 1.6; text-align: center; letter-spacing: .3px;
+}
+
+/* 实时时钟（用户要求的"优点"，克制不喧宾夺主，约为原尺寸一半） */
+.login-clock { text-align: center; margin: 2px 0 16px; user-select: none; }
 .login-clock-time {
-  font-size: 32px; font-weight: 800; letter-spacing: 3px; line-height: 1.12;
+  font-size: 16px; font-weight: 700; letter-spacing: 2px; line-height: 1.1;
   font-variant-numeric: tabular-nums;
   background: linear-gradient(100deg, #cfe0ff, #b9a8ff 55%, #9af0dd);
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
-  text-shadow: 0 0 24px rgba(91,140,255,.18);
+  text-shadow: 0 0 18px rgba(91,140,255,.14);
 }
-.login-clock-date { font-size: 12px; color: #9fb0d0; margin-top: 3px; letter-spacing: .6px; }
+.login-clock-date { font-size: 10px; color: #9fb0d0; margin-top: 2px; letter-spacing: .5px; }
 
 /* ---------- 授权管理 弹窗 ---------- */
 .auth-modal {
