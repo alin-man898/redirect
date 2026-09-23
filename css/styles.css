@@ -146,6 +146,9 @@ img, video { -webkit-user-drag: none; user-drag: none; }
 .nav-ico { width: 20px; text-align: center; font-size: 15px; opacity: .9; }
 .sidebar-foot { padding: 14px 16px; border-top: 1px solid var(--glass-border-soft); }
 .sidebar-foot .hint { font-size: 11px; color: var(--muted); margin-bottom: 10px; line-height: 1.5; }
+.sidebar-actions { display: flex; gap: 8px; }
+.sidebar-actions .btn-ghost { flex: 1; padding: 8px 10px; }
+.btn-ghost.danger:hover { border-color: var(--bad); color: var(--bad); background: rgba(226,61,61,0.08); }
 
 /* 主区 */
 .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 14px 14px 14px 0; }
