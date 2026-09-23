@@ -377,9 +377,18 @@
   function init() {
     gate = $("#login-gate"); msgEl = $("#login-msg"); clockEl = $("#login-clock");
     fab = $("#auth-fab"); modal = $("#auth-modal"); listEl = $("#auth-list");
+    var clockTimeEl = $("#login-clock-time");   // 顶部显著时钟（时分秒）
+    var clockDateEl = $("#login-clock-date");   // 顶部显著时钟（日期+星期）
 
-    // 实时时钟
-    function tick() { if (clockEl) clockEl.textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false }); }
+    // 实时时钟（顶部显著展示 + 底部旧节点兜底，二者均更新）
+    function tick() {
+      var now = new Date();
+      var t = now.toLocaleTimeString("zh-CN", { hour12: false });
+      var d = now.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" });
+      if (clockTimeEl) clockTimeEl.textContent = t;
+      if (clockDateEl) clockDateEl.textContent = d;
+      if (clockEl) clockEl.textContent = t;
+    }
     tick(); setInterval(tick, 1000);
 
     // 显示分支：未初始化 → 初始化面板；已初始化 → 登录区
