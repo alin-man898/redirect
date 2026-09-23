@@ -1,28 +1,36 @@
 /* =========================================================
    智能投标工作平台 · 登录门禁与授权逻辑（纯前端）
-   - 主密码登录（所有者）
+   - 首次初始化：所有权人自设主密码（不再写死），并生成恢复码
+   - 主密码登录（所有者，本机）
    - 授权他人：生成带过期时间的授权码（SHA-256 签名防伪造）
    - 授权码登录（访客，自带时效）
-   - 会话管理 + 所有者授权管理面板
-   注意：纯前端方案，无后端。主密码/签名密钥写在源码中，
-   仅适合内部工具。请尽快修改 MASTER_PW 与 SECRET。
+   - 恢复码登录（跨设备自救）：验证通过 → 重设本机主密码
+   - 会话管理 + 所有者授权管理面板（含恢复码查看/重生成）
+   注意：纯前端方案，无后端。系统密钥写在源码中，仅适合内部工具。
+   请修改 OWNER_INIT_TOKEN / SECRET / RECOVERY_SECRET 为你自己的值。
    ========================================================= */
 (function () {
   "use strict";
 
   /* ====== 可配置项（请修改为你自己的值） ====== */
-  const MASTER_PW = "alin898";        // 主密码（所有者）
-  const SECRET = "ALIN-MAN898-SYD-2026-KEY"; // 授权码签名密钥（改了会让所有旧授权码失效）
-  const KEY_VERSION = "v1";           // 授权码版本（轮换密钥时改这里 + 重部署，旧码全失效）
-  const OWNER_TTL = 12 * 3600 * 1000; // 所有者会话时长（毫秒）：12 小时
-  const TRUST_TTL = 7 * 24 * 3600 * 1000; // “信任此浏览器”时长：7 天
+  const SECRET = "ALIN-MAN898-SYD-2026-KEY";          // 授权码签名密钥（改了会让所有旧授权码失效）
+  const RECOVERY_SECRET = "ALIN-RECOVERY-2026-SYD";   // 恢复码签名密钥（改了所有旧恢复码失效）
+  const OWNER_INIT_TOKEN = "alin-init-owner-2026";    // 初始化门槛令牌（设完主密码即废，请改成只有你知道的）
+  const KEY_VERSION = "v1";                            // 授权码版本（轮换密钥时改这里 + 重部署）
+  const OWNER_TTL = 12 * 3600 * 1000;                  // 所有者会话时长：12 小时
+  const TRUST_TTL = 7 * 24 * 3600 * 1000;              // “信任此浏览器”时长：7 天
+  const MASTER_SALT = "::sy-master-salt::";            // 主密码派生盐
+  const RECOVERY_COUNT = 8;                            // 初始恢复码数量
 
-  const SKEY_SESSION = "sy_auth_session"; // sessionStorage 键
-  const LKEY_TRUST = "sy_auth_trust";     // localStorage 键（信任设备）
-  const LKEY_GEN = "sy_auth_generated";   // localStorage 键（已生成列表）
-  const LKEY_REVOKE = "sy_auth_revoked";  // localStorage 键（本机作废列表）
+  /* ====== 存储键 ====== */
+  const LKEY_MASTER = "sy_master_hash";   // 本机主密码哈希
+  const LKEY_INIT = "sy_initialized";     // 是否已初始化标记
+  const LKEY_TRUST = "sy_auth_trust";     // localStorage（信任设备）
+  const LKEY_GEN = "sy_auth_generated";   // 已生成授权码列表
+  const LKEY_REVOKE = "sy_auth_revoked";  // 本机作废列表
+  const LKEY_RECOVERY = "sy_recovery_codes"; // 本机保存的恢复码（展示/重生成用）
 
-  /* ====== 工具：base64url + SHA-256（UTF-8 安全，http 也可用） ====== */
+  /* ====== 工具：base64url + SHA-256 ====== */
   function b64urlEncode(str) {
     return btoa(unescape(encodeURIComponent(str)))
       .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -32,7 +40,7 @@
     while (str.length % 4) str += "=";
     return decodeURIComponent(escape(atob(str)));
   }
-  // 纯 JS SHA-256（字节版，兼容 http 非安全上下文）
+  // 纯 JS SHA-256
   function sha256hex(str) {
     const bytes = new TextEncoder().encode(str);
     const K = new Uint32Array([
@@ -85,6 +93,20 @@
     for (let i = 0; i < 8; i++) out += ("00000000" + (h[i] >>> 0).toString(16)).slice(-8);
     return out;
   }
+  function randomHex(bytes) {
+    const a = new Uint8Array(bytes);
+    if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(a);
+    else for (let i = 0; i < a.length; i++) a[i] = Math.floor(Math.random() * 256);
+    let s = "";
+    for (let i = 0; i < a.length; i++) s += ("0" + a[i].toString(16)).slice(-2);
+    return s;
+  }
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+
+  /* ====== 主密码 / 初始化 ====== */
+  function masterHashOf(pw) { return sha256hex(pw + MASTER_SALT); }
+  function hasMaster() { try { return !!localStorage.getItem(LKEY_MASTER); } catch (e) { return false; } }
+  function isInitialized() { try { return localStorage.getItem(LKEY_INIT) === "1"; } catch (e) { return false; } }
 
   /* ====== 授权码：生成 / 校验 ====== */
   function makeCode(days, label) {
@@ -110,20 +132,38 @@
     return { ok: true, payload: payload };
   }
 
+  /* ====== 恢复码：生成 / 校验 / 存取 ====== */
+  function genRecoveryCodes(n) {
+    const list = [];
+    for (let i = 0; i < n; i++) {
+      const raw = randomHex(10);                       // 20 hex
+      const sig = sha256hex(raw + RECOVERY_SECRET).slice(0, 10); // 10 hex 签名
+      list.push({ raw: raw, sig: sig, code: raw + sig }); // 30 hex
+    }
+    return list;
+  }
+  function verifyRecovery(code) {
+    code = (code || "").trim();
+    if (code.length !== 30) return { ok: false, reason: "恢复码格式不正确" };
+    const raw = code.slice(0, 20), sig = code.slice(20);
+    if (sha256hex(raw + RECOVERY_SECRET).slice(0, 10) !== sig) return { ok: false, reason: "恢复码无效或被篡改" };
+    return { ok: true };
+  }
+  function loadRecovery() { try { return JSON.parse(localStorage.getItem(LKEY_RECOVERY) || "[]"); } catch (e) { return []; } }
+  function saveRecovery(arr) { try { localStorage.setItem(LKEY_RECOVERY, JSON.stringify(arr)); } catch (e) {} }
+
   /* ====== 会话 ====== */
   function saveSession(role, ttl, label) {
     const exp = Date.now() + ttl;
     const sess = { role: role, exp: exp, label: label || "", ts: Date.now() };
-    try { sessionStorage.setItem(SKEY_SESSION, JSON.stringify(sess)); } catch (e) {}
+    try { sessionStorage.setItem("sy_auth_session", JSON.stringify(sess)); } catch (e) {}
     return sess;
   }
   function getSession() {
-    // 1) 会话存储（关页即清）
     try {
-      const s = JSON.parse(sessionStorage.getItem(SKEY_SESSION) || "null");
+      const s = JSON.parse(sessionStorage.getItem("sy_auth_session") || "null");
       if (s && s.exp > Date.now()) return s;
     } catch (e) {}
-    // 2) 信任设备（localStorage，自带过期）
     try {
       const t = JSON.parse(localStorage.getItem(LKEY_TRUST) || "null");
       if (t && t.exp > Date.now()) return t;
@@ -140,28 +180,58 @@
     msgEl.textContent = text || "";
     msgEl.className = "login-msg" + (type ? " " + type : "");
   }
-
   function openGate() { if (gate) gate.classList.remove("hidden"); }
   function closeGate() { if (gate) gate.classList.add("hidden"); }
 
-  /* ====== 登录动作 ====== */
+  /* ====== 初始化（首次设主密码 + 生成恢复码） ====== */
+  function doInit() {
+    const token = $("#init-token").value;
+    const pw = $("#init-pw").value;
+    const pw2 = $("#init-pw2").value;
+    const im = $("#init-msg");
+    if (token !== OWNER_INIT_TOKEN) { im.textContent = "所有权人初始令牌错误"; im.className = "login-msg err"; return; }
+    if (pw.length < 6) { im.textContent = "主密码至少 6 位"; im.className = "login-msg err"; return; }
+    if (pw !== pw2) { im.textContent = "两次输入的主密码不一致"; im.className = "login-msg err"; return; }
+    try {
+      localStorage.setItem(LKEY_MASTER, masterHashOf(pw));
+      localStorage.setItem(LKEY_INIT, "1");
+    } catch (e) {}
+    const codes = genRecoveryCodes(RECOVERY_COUNT);
+    saveRecovery(codes);
+    saveSession("owner", OWNER_TTL, "所有者");
+    renderRecoveryInto($("#init-recovery-list"), codes);
+    $("#init-form").classList.add("hidden");
+    $("#init-recovery").classList.remove("hidden");
+    $("#btn-init-enter").classList.remove("hidden");
+  }
+  function renderRecoveryInto(box, codes) {
+    if (!box) return;
+    box.innerHTML = "";
+    codes.forEach(function (c) {
+      const row = document.createElement("div");
+      row.className = "recovery-code";
+      row.innerHTML = '<code>' + esc(c.code) + '</code><button class="auth-mini" data-act="rcopy" data-code="' + esc(c.code) + '">复制</button>';
+      box.appendChild(row);
+    });
+  }
+
+  /* ====== 主密码登录 ====== */
   function doMasterLogin() {
     const pw = $("#master-pw").value;
     if (!pw) { showMsg("请输入主密码", "err"); return; }
-    if (pw !== MASTER_PW) { showMsg("主密码错误", "err"); return; }
+    let stored = null; try { stored = localStorage.getItem(LKEY_MASTER); } catch (e) {}
+    if (masterHashOf(pw) !== stored) { showMsg("主密码错误", "err"); return; }
     saveSession("owner", OWNER_TTL, "所有者");
     showMsg("验证通过，正在进入…", "ok");
-    setTimeout(function () {
-      closeGate();
-      if (fab) fab.classList.remove("hidden");
-    }, 260);
+    setTimeout(function () { closeGate(); if (fab) fab.classList.remove("hidden"); }, 260);
   }
+
+  /* ====== 授权码登录 ====== */
   function doCodeLogin() {
     const code = $("#code-input").value;
     if (!code) { showMsg("请粘贴授权码", "err"); return; }
     const r = verifyCode(code);
     if (!r.ok) { showMsg(r.reason, "err"); return; }
-    // 是否记住设备
     const trust = $("#trust-device") && $("#trust-device").checked;
     const ttl = Math.min(r.payload.exp - Date.now(), TRUST_TTL);
     saveSession("guest", Math.max(ttl, 60000), r.payload.label);
@@ -170,6 +240,29 @@
     }
     showMsg("授权码有效，正在进入…", "ok");
     setTimeout(function () { closeGate(); }, 260);
+  }
+
+  /* ====== 恢复码登录 → 重设本机主密码 ====== */
+  function doRecoveryLogin() {
+    const code = $("#recovery-input").value;
+    if (!code) { showMsg("请粘贴恢复码", "err"); return; }
+    const r = verifyRecovery(code);
+    if (!r.ok) { showMsg(r.reason, "err"); return; }
+    // 切到重设面板
+    $("#login-area").classList.add("hidden");
+    $("#reset-pane").classList.remove("hidden");
+    const rm = $("#reset-msg"); rm.textContent = "恢复码有效，请设置本机主密码"; rm.className = "login-msg ok";
+    setTimeout(function () { const e = $("#reset-pw"); if (e) e.focus(); }, 50);
+  }
+  function doReset() {
+    const pw = $("#reset-pw").value;
+    const pw2 = $("#reset-pw2").value;
+    const rm = $("#reset-msg");
+    if (pw.length < 6) { rm.textContent = "主密码至少 6 位"; rm.className = "login-msg err"; return; }
+    if (pw !== pw2) { rm.textContent = "两次输入不一致"; rm.className = "login-msg err"; return; }
+    try { localStorage.setItem(LKEY_MASTER, masterHashOf(pw)); localStorage.setItem(LKEY_INIT, "1"); } catch (e) {}
+    saveSession("owner", OWNER_TTL, "所有者");
+    setTimeout(function () { closeGate(); if (fab) fab.classList.remove("hidden"); }, 200);
   }
 
   /* ====== 授权管理面板 ====== */
@@ -201,6 +294,19 @@
       meta.textContent = expired ? "已过期 · " + expStr : "剩余 " + fmtRemain(exp - Date.now()) + " · 至 " + expStr;
     });
   }
+  function renderRecoveryList() {
+    const box = $("#auth-recovery-list");
+    if (!box) return;
+    const codes = loadRecovery();
+    box.innerHTML = "";
+    if (!codes.length) { box.innerHTML = '<div class="auth-empty">暂无恢复码（首次初始化时已生成，若丢失请重新生成）。</div>'; return; }
+    codes.forEach(function (c) {
+      const row = document.createElement("div");
+      row.className = "recovery-code";
+      row.innerHTML = '<code>' + esc(c.code) + '</code><button class="auth-mini" data-act="rcopy" data-code="' + esc(c.code) + '">复制</button>';
+      box.appendChild(row);
+    });
+  }
   function fmtRemain(ms) {
     if (ms < 0) return "0";
     const d = Math.floor(ms / 86400000);
@@ -210,7 +316,6 @@
     if (h > 0) return h + " 时 " + m + " 分";
     return m + " 分";
   }
-  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
 
   function genCode() {
     const durSel = $("#auth-dur").value;
@@ -225,10 +330,8 @@
     const code = makeCode(days, label);
     const raw = code.split(".")[0];
     const exp = Date.now() + days * 86400000;
-    // 展示
     $("#auth-code-text").textContent = code;
     $("#auth-code-box").style.display = "flex";
-    // 存入列表
     const arr = loadGen();
     arr.unshift({ code: code, raw: raw, exp: exp, label: label, created: Date.now() });
     saveGen(arr.slice(0, 50));
@@ -258,6 +361,7 @@
 
   function openModal() {
     renderList();
+    renderRecoveryList();
     $("#auth-code-box").style.display = "none";
     modal.classList.remove("hidden");
   }
@@ -266,7 +370,7 @@
   function requireOwner(cb) {
     const s = getSession();
     if (s && s.role === "owner") { cb(); }
-    else { openGate(); showMsg("请先使用主密码登录", "err"); $("#master-pw").focus(); }
+    else { openGate(); showMsg("请先使用主密码登录", "err"); const e = $("#master-pw"); if (e) e.focus(); }
   }
 
   /* ====== 初始化 ====== */
@@ -278,7 +382,18 @@
     function tick() { if (clockEl) clockEl.textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false }); }
     tick(); setInterval(tick, 1000);
 
-    // 选项卡切换
+    // 显示分支：未初始化 → 初始化面板；已初始化 → 登录区
+    if (!isInitialized() || !hasMaster()) {
+      $("#init-pane").classList.remove("hidden");
+      $("#login-area").classList.add("hidden");
+      $("#reset-pane").classList.add("hidden");
+    } else {
+      $("#init-pane").classList.add("hidden");
+      $("#login-area").classList.remove("hidden");
+      $("#reset-pane").classList.add("hidden");
+    }
+
+    // 选项卡切换（仅登录区内）
     document.querySelectorAll(".ltab").forEach(function (tab) {
       tab.addEventListener("click", function () {
         document.querySelectorAll(".ltab").forEach(function (t) { t.classList.remove("active"); });
@@ -291,16 +406,36 @@
       });
     });
 
+    // 初始化按钮
+    $("#btn-init").addEventListener("click", doInit);
+    $("#btn-init-enter").addEventListener("click", function () { closeGate(); if (fab) fab.classList.remove("hidden"); });
+    // 已有恢复码（换设备）入口
+    $("#btn-have-recovery").addEventListener("click", function () {
+      $("#init-pane").classList.add("hidden");
+      $("#login-area").classList.remove("hidden");
+      const t = document.querySelector('.ltab[data-tab="recovery"]');
+      if (t) {
+        document.querySelectorAll(".ltab").forEach(function (x) { x.classList.remove("active"); });
+        t.classList.add("active");
+        document.querySelectorAll(".ltab-pane").forEach(function (p) {
+          p.classList.toggle("hidden", p.getAttribute("data-pane") !== "recovery");
+        });
+      }
+      showMsg("", "");
+    });
+    // 重设按钮
+    $("#btn-reset").addEventListener("click", doReset);
     // 登录按钮
     $("#btn-master-login").addEventListener("click", doMasterLogin);
     $("#btn-code-login").addEventListener("click", doCodeLogin);
+    $("#btn-recovery-login").addEventListener("click", doRecoveryLogin);
     $("#master-pw").addEventListener("keydown", function (e) { if (e.key === "Enter") doMasterLogin(); });
     $("#code-input").addEventListener("keydown", function (e) { if (e.key === "Enter") doCodeLogin(); });
+    $("#recovery-input").addEventListener("keydown", function (e) { if (e.key === "Enter") doRecoveryLogin(); });
+    $("#reset-pw2").addEventListener("keydown", function (e) { if (e.key === "Enter") doReset(); });
 
     // 授权管理入口
     $("#btn-open-auth").addEventListener("click", function () { requireOwner(openModal); });
-
-    // 浮动按钮
     if (fab) fab.addEventListener("click", function () { requireOwner(openModal); });
 
     // 弹窗
@@ -317,21 +452,31 @@
     $("#auth-dur").addEventListener("change", function () {
       $("#auth-custom").style.display = this.value === "custom" ? "block" : "none";
     });
-    // 复制 / 作废 事件委托
-    listEl.addEventListener("click", function (e) {
+    // 重新生成恢复码
+    $("#auth-regen-recovery").addEventListener("click", function () {
+      const codes = genRecoveryCodes(RECOVERY_COUNT);
+      saveRecovery(codes);
+      renderRecoveryList();
+      toast("已重新生成恢复码，旧码作废");
+    });
+
+    // 复制 / 作废 / 恢复码复制 事件委托（弹窗 + 初始化面板通用）
+    document.body.addEventListener("click", function (e) {
       const btn = e.target.closest("button"); if (!btn) return;
       const act = btn.getAttribute("data-act");
       if (act === "copy") {
         copyCode(btn.getAttribute("data-code"));
         const old = btn.textContent; btn.textContent = "已复制";
         setTimeout(function () { btn.textContent = old; }, 1400);
-      }
-      else if (act === "revoke") {
+      } else if (act === "rcopy") {
+        copyCode(btn.getAttribute("data-code"));
+        const old = btn.textContent; btn.textContent = "已复制";
+        setTimeout(function () { btn.textContent = old; }, 1400);
+      } else if (act === "revoke") {
         const raw = btn.getAttribute("data-raw");
         let rev = []; try { rev = JSON.parse(localStorage.getItem(LKEY_REVOKE) || "[]"); } catch (e2) {}
         if (rev.indexOf(raw) < 0) rev.push(raw);
         try { localStorage.setItem(LKEY_REVOKE, JSON.stringify(rev)); } catch (e2) {}
-        // 从生成列表移除
         const arr = loadGen().filter(function (x) { return x.raw !== raw; });
         saveGen(arr);
         renderList();
