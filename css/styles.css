@@ -117,6 +117,11 @@ html[data-theme="dark"] .orb { opacity: 0.40; }
 .cover-tag { font-size: 11.5px; padding: 4px 13px; border-radius: 20px; background: var(--glass-bg-strong); border: 1px solid var(--glass-border-soft); color: var(--text-2); font-weight: 600; }
 .cover-cta { position: relative; z-index: 1; }
 
+/* ---------- 防盗复制 / 拖拽（内容区禁选禁拷，登录/授权输入框放行） ---------- */
+body { -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
+input, textarea, select, [contenteditable="true"] { -webkit-user-select: text; -moz-user-select: text; -ms-user-select: text; user-select: text; }
+img, video { -webkit-user-drag: none; user-drag: none; }
+
 /* 版权提示（禁右键跟随显示） */
 #copyright-tip {
   position: fixed; z-index: 99999; transform: translate(-50%, -130%);
