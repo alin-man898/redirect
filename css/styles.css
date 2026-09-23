@@ -132,7 +132,15 @@ img, video { -webkit-user-drag: none; user-drag: none; }
   opacity: 0; pointer-events: none; transition: opacity .18s ease, transform .18s ease;
 }
 #copyright-tip.show { opacity: 1; transform: translate(-50%, -145%); }
-.nav { padding: 12px 12px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.nav { padding: 16px 12px 12px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+/* 侧边栏分组标签（工作空间 / 智能工具链 / 系统） */
+.nav-group {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 2.5px; color: var(--muted);
+  padding: 12px 13px 3px; opacity: .85; user-select: none;
+  display: flex; align-items: center; gap: 8px;
+}
+.nav-group::after { content: ""; flex: 1; height: 1px; background: var(--glass-border-soft); }
+.nav-group:first-child { padding-top: 2px; }
 .nav-item {
   width: 100%; text-align: left; background: none; border: 1px solid transparent; color: var(--text-2);
   padding: 11px 13px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 600;
@@ -143,12 +151,16 @@ img, video { -webkit-user-drag: none; user-drag: none; }
   background: linear-gradient(100deg, rgba(47,107,255,0.18), rgba(0,194,168,0.10));
   border-color: rgba(47,107,255,0.35); color: var(--primary); box-shadow: var(--ring);
 }
+/* 系统设置下沉到导航区底部（与上方工具链自然分隔） */
+.nav-item.nav-bottom { margin-top: auto; border-top: 1px solid var(--glass-border-soft); border-radius: 0 0 12px 12px; padding-top: 13px; }
 .nav-ico { width: 20px; text-align: center; font-size: 15px; opacity: .9; }
-.sidebar-foot { padding: 14px 16px; border-top: 1px solid var(--glass-border-soft); }
-.sidebar-foot .hint { font-size: 11px; color: var(--muted); margin-bottom: 10px; line-height: 1.5; }
-.sidebar-actions { display: flex; gap: 8px; }
-.sidebar-actions .btn-ghost { flex: 1; padding: 8px 10px; }
-.btn-ghost.danger:hover { border-color: var(--bad); color: var(--bad); background: rgba(226,61,61,0.08); }
+.sidebar-foot { padding: 12px 16px 14px; border-top: 1px solid var(--glass-border-soft); }
+.sidebar-foot .hint { font-size: 10.5px; color: var(--muted); text-align: center; letter-spacing: .8px; line-height: 1.5; }
+.btn-ghost.danger:hover, .btn-ghost.tb-danger:hover { border-color: var(--bad); color: var(--bad); background: rgba(226,61,61,0.08); }
+
+/* 顶栏操作按钮（新建投标项目 / 切换主题 / 退出登录 并列） */
+.tb-btn { padding: 8px 14px; border-radius: 11px; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.tb-ico { font-size: 14px; opacity: .85; }
 
 /* 主区 */
 .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 14px 14px 14px 0; }
