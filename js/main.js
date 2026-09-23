@@ -81,5 +81,19 @@
       showTip(e.clientX, e.clientY);
     });
     document.addEventListener("click", function () { if (tip) tip.classList.remove("show"); });
+
+    // 防盗复制：内容区拦截 copy/cut/selectstart（防止图文视频被复制窃取）
+    // 登录/授权码输入框放行，保留复制、剪切、全选、粘贴能力
+    function isAuthField(el) {
+      if (!el || !el.tagName) return false;
+      var t = el.tagName.toLowerCase();
+      return t === "input" || t === "textarea" || el.isContentEditable === true;
+    }
+    ["copy", "cut", "selectstart"].forEach(function (evt) {
+      document.addEventListener(evt, function (e) {
+        if (isAuthField(e.target)) return; // 输入框：放行复制/剪切/全选
+        e.preventDefault();
+      });
+    });
   })();
 })();
