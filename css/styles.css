@@ -133,7 +133,7 @@ img, video { -webkit-user-drag: none; user-drag: none; }
 }
 #copyright-tip.show { opacity: 1; transform: translate(-50%, -145%); }
 .nav { padding: 16px 12px 12px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
-/* 侧边栏分组标签（工作空间 / 智能工具链 / 系统） */
+/* 侧边栏分组标签（工作空间 / 智能工具链；"系统"分组仅保留分隔横线、无文字） */
 .nav-group {
   font-size: 10.5px; font-weight: 700; letter-spacing: 2.5px; color: var(--muted);
   padding: 12px 13px 3px; opacity: .85; user-select: none;
