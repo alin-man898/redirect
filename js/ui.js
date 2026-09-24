@@ -13,6 +13,49 @@
   function onAll(sel, ev, fn) { view.querySelectorAll(sel).forEach(function (e) { e.addEventListener(ev, fn); }); }
   function esc(s) { return U.escapeHtml(s); }
 
+  // ---------- 文档上传通用：放开常用办公/图文/音视频格式，并按类型真实提取正文 ----------
+  // 覆盖：PDF、Word(docx)、WPS、文本、表格、演示、常用图片、常用音视频
+  var ACCEPT_DOCS = ".pdf,.doc,.docx,.wps,.dot,.rtf,.txt,.md,.csv,.log,.xlsx,.xls,.ppt,.pptx,.jpg,.jpeg,.png,.gif,.bmp,.webp,.svg,.mp4,.mov,.avi,.mkv,.mp3,.wav,.m4a";
+  // 读取所选文件 → { text:正文, msg:提示 }；无法自动提取时 reject({ noExtract:true, message:指引文案 })
+  function extractDocText(file) {
+    var ext = (file.name.split(".").pop() || "").toLowerCase();
+    function readText() {
+      return new Promise(function (res, rej) {
+        var r = new FileReader();
+        r.onload = function () { res({ text: String(r.result), msg: "已读取 " + file.name }); };
+        r.onerror = function () { rej(new Error("文件读取失败")); };
+        r.readAsText(file);
+      });
+    }
+    if (ext === "pdf") {
+      if (!SYD.pdf || !SYD.pdf.available()) return Promise.reject(new Error("PDF 引擎未加载，请改用 .docx/.txt 或直接粘贴正文"));
+      U.toast("PDF 解析中…");
+      return SYD.pdf.parseFile(file).then(function (t) {
+        if (!t) throw new Error("PDF 中未提取到文字（可能为扫描件，请粘贴正文）");
+        return { text: t, msg: "PDF 解析完成，共 " + t.length + " 字" };
+      });
+    }
+    if (ext === "docx") {
+      if (typeof window.DecompressionStream === "undefined") {
+        return Promise.reject({ noExtract: true, message: "当前浏览器版本过低，无法自动提取 .docx 正文：请将文件另存为 PDF 后上传，或直接粘贴正文" });
+      }
+      U.toast("Word 文档解析中…");
+      return SYD.docx.extractFile(file).then(function (t) {
+        if (!t) throw new Error(".docx 中未提取到正文");
+        return { text: t, msg: "Word(docx) 提取完成，共 " + t.length + " 字" };
+      });
+    }
+    if (["txt", "md", "csv", "log", "rtf"].indexOf(ext) >= 0) return readText();
+    if (["jpg", "jpeg", "png", "gif", "bmp", "webp", "svg"].indexOf(ext) >= 0) {
+      return Promise.reject({ noExtract: true, message: "图片请到「私人图库」上传（支持 AI 视觉理解）；知识库/方案提取仅收文字内容" });
+    }
+    if (["mp4", "mov", "avi", "mkv", "mp3", "wav", "m4a"].indexOf(ext) >= 0) {
+      return Promise.reject({ noExtract: true, message: "知识库/方案提取是文字检索库，音视频不入库；如有讲稿、字幕文本可直接粘贴到正文框" });
+    }
+    // doc / wps / xls / ppt 等二进制办公格式：给出明确转换指引，不静默塞乱码
+    return Promise.reject({ noExtract: true, message: "." + ext + " 格式暂不支持自动提取正文：请另存为 PDF（可全文自动提取）或 .docx，也可直接粘贴正文" });
+  }
+
   // ---------- 通用弹窗（替代原生 prompt/confirm，兼容预览环境） ----------
   function modal(opts) {
     opts = opts || {};
@@ -218,7 +261,7 @@
     html += "<label>项目名称</label><input id='f-name' value='" + esc(p.name) + "'/>";
     html += "<label>招标文件原文（粘贴，或上传 .pdf / .txt / .md）</label>";
     html += "<textarea id='f-raw' rows='7' placeholder='将招标文件全文粘贴此处，或上传 PDF 由本地 pdf.js 真实解析，用于智能提取招标方、项目、预算、资质、标准、评分办法…'>" + esc(p.rawText) + "</textarea>";
-    html += "<div class='toolbar'><input type='file' id='f-file' accept='.pdf,.txt,.md' style='width:auto'/><button class='btn-ghost btn-sm' id='b-extract'>智能提取基础信息</button><span class='muted' id='extract-tip' style='font-size:12px'></span></div>";
+    html += "<div class='toolbar'><input type='file' id='f-file' accept='" + ACCEPT_DOCS + "' style='width:auto'/><button class='btn-ghost btn-sm' id='b-extract'>智能提取基础信息</button><span class='muted' id='extract-tip' style='font-size:12px'></span></div>";
 
     html += "<label>撰写模式</label><div class='row wrap'>";
     [["quick", "快速编写"], ["score", "快捷评分"], ["custom", "定制评分"]].forEach(function (m) {
@@ -292,17 +335,14 @@
     on("#f-raw", "input", function (e) { p.rawText = e.target.value; save(); });
     on("#f-file", "change", function (e) {
       var f = e.target.files[0]; if (!f) return;
-      if (/\.pdf$/i.test(f.name)) {
-        if (!SYD.pdf || !SYD.pdf.available()) { U.toast("PDF 引擎未加载，请用 .txt/.md 或粘贴文本"); return; }
-        U.toast("PDF 解析中…");
-        SYD.pdf.parseFile(f).then(function (txt) {
-          p.rawText = txt; save(); U.toast("PDF 解析完成，共 " + txt.length + " 字"); renderPlan();
-        }).catch(function (err) { U.toast("PDF 解析失败：" + err.message); });
-        return;
-      }
-      var r = new FileReader();
-      r.onload = function () { p.rawText = r.result; document.getElementById("f-raw").value = r.result; save(); U.toast("已读取 " + f.name); };
-      r.readAsText(f);
+      e.target.value = ""; // 允许重复选择同一文件
+      extractDocText(f).then(function (res) {
+        p.rawText = res.text;
+        var rawEl = document.getElementById("f-raw"); if (rawEl) rawEl.value = res.text;
+        save(); U.toast(res.msg);
+      }).catch(function (err) {
+        U.toast(err && err.noExtract ? err.message : ("提取失败：" + (err && err.message ? err.message : "未知错误")));
+      });
     });
     on("#b-extract", "click", function () {
       p.basics = SYD.ai.extractBasics(p.rawText);
@@ -668,7 +708,7 @@
     var html = "<div class='grid grid-3'>";
     // 知识库
     html += "<div class='card'><div class='section-title'>知识库（RAG 私有素材）</div><div class='section-sub'>上传高质量资料，方案生成时智能检索引用</div>";
-    html += "<div class='row'><input id='kb-title' placeholder='文档标题'/><input id='kb-file' type='file' accept='.txt,.md' style='width:auto'/></div>";
+    html += "<div class='row'><input id='kb-title' placeholder='文档标题'/><input id='kb-file' type='file' accept='" + ACCEPT_DOCS + "' style='width:auto'/></div>";
     html += "<textarea id='kb-text' rows='4' placeholder='或在此粘贴文档正文'></textarea>";
     html += "<div class='toolbar'><button class='btn-primary btn-sm' id='b-kb-add'>添加到知识库</button><input id='kb-search' placeholder='检索' style='max-width:140px'/><button class='btn-ghost btn-sm' id='b-kb-search'>检索</button></div>";
     html += "<div id='kb-list'></div></div>";
@@ -699,9 +739,25 @@
       var title = document.getElementById("kb-title").value.trim();
       var text = document.getElementById("kb-text").value.trim();
       var f = document.getElementById("kb-file").files[0];
-      if (f) { var r = new FileReader(); r.onload = function () { m.knowledge.push({ id: U.uid(), title: title || f.name, text: r.result }); save(); renderKB(); document.getElementById("kb-title").value = ""; document.getElementById("kb-text").value = ""; U.toast("已添加"); }; r.readAsText(f); return; }
+      function done(t, extraMsg) {
+        m.knowledge.push({ id: U.uid(), title: title || (f ? f.name : ""), text: t });
+        save(); renderKB();
+        document.getElementById("kb-title").value = "";
+        document.getElementById("kb-text").value = "";
+        document.getElementById("kb-file").value = "";
+        U.toast("已添加" + (extraMsg ? "（" + extraMsg + "）" : ""));
+      }
+      if (f) {
+        extractDocText(f).then(function (res) {
+          if (!res.text || !res.text.trim()) { U.toast("文件中未提取到文字，请检查文件内容或改用粘贴正文"); return; }
+          done(res.text, res.msg);
+        }).catch(function (err) {
+          U.toast(err && err.noExtract ? err.message : ("提取失败：" + (err && err.message ? err.message : "未知错误")));
+        });
+        return;
+      }
       if (!title || !text) { U.toast("请填写标题与正文或上传文件"); return; }
-      m.knowledge.push({ id: U.uid(), title: title, text: text }); save(); renderKB(); document.getElementById("kb-title").value = ""; document.getElementById("kb-text").value = ""; U.toast("已添加");
+      done(text);
     });
     on("#b-kb-search", "click", function () { var q = document.getElementById("kb-search").value.trim(); if (!q) return renderKB(); renderKB(m.knowledge.filter(function (d) { return (d.title + d.text).indexOf(q) >= 0; })); });
     on("#b-img-add", "click", function () {
