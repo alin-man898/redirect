@@ -791,6 +791,8 @@
     setView("企业素材");
     var m = S.get().materials;
     var pendingKBFile = null; // 记录“单文件自动识别后待用户确认添加”的文件引用
+    var pendingKBDone = true;  // 单文件正文提取是否已完成
+    var pendingKBErr = null;   // 单文件正文提取失败原因（用于提示，但不阻塞入库）
     var IMG_EXT = ["jpg", "jpeg", "png", "gif", "bmp", "webp", "svg", "mp4", "mov", "avi", "mkv", "mp3", "wav", "m4a"];
     function metaOf(f, a) { return { name: f.name, type: a.type, date: a.date, code: a.code, info: a.info, size: f.size || 0 }; }
     // 多选批量入库：文字类自动提取正文+自动命名+自动附件信息；图片/音视频提示去图库
@@ -859,16 +861,18 @@
         return;
       }
       // 单文件：自动识别命名+正文填入文本框，供用户修改后点添加
-      var f = files[0]; pendingKBFile = f;
+      var f = files[0]; pendingKBFile = f; pendingKBDone = false; pendingKBErr = null;
       var a = analyzeFileName(f.name);
       var titleEl = document.getElementById("kb-title"), textEl = document.getElementById("kb-text");
       if (!titleEl.value.trim()) titleEl.value = a.title;
       var tip = document.getElementById("kb-auto");
       extractDocText(f).then(function (res) {
-        if (!textEl.value.trim()) textEl.value = res.text;
+        pendingKBDone = true;
+        if (!textEl.value.trim()) textEl.value = res.text || "";
         tip.textContent = "已自动识别：" + (a.info || a.title) + "（可修改后点「添加到知识库」）";
       }).catch(function (err) {
-        tip.textContent = "已自动识别标题：" + a.title + (err && err.noExtract ? "；该格式暂不能自动提取正文，请粘贴正文" : "") + "（可修改后点「添加到知识库」）";
+        pendingKBDone = true; pendingKBErr = err;
+        tip.textContent = "已自动识别标题：" + a.title + (err && err.noExtract ? "；该格式暂不能自动提取正文，可手工粘贴，或直接点「添加到知识库」保存标题与附件信息" : "（可手工粘贴正文）");
       });
     });
     on("#b-kb-add", "click", function () {
@@ -887,12 +891,15 @@
       }
       if (f && pendingKBFile === f) {
         var a = analyzeFileName(f.name);
-        if (!text) {
-          extractDocText(f).then(function (res) { done(res.text, metaOf(f, a), res.msg); })
-            .catch(function (err) { U.toast(err && err.noExtract ? err.message : ("提取失败：" + (err && err.message ? err.message : "未知错误"))); });
+        if (!text && !pendingKBDone) {
+          // 正文提取尚未完成，稍候再决定（避免漏掉已抽出的正文）
+          U.toast("正在识别正文，请稍候…");
+          extractDocText(f).then(function (res) { done(res.text || "", metaOf(f, a), res.text ? "" : "（正文为空，可手工补）"); })
+            .catch(function () { done("", metaOf(f, a), "（该格式无法自动提取正文，已保存标题与附件信息）"); });
           return;
         }
-        done(text, metaOf(f, a));
+        // 提取完成（成功或失败都照常入库：失败则保存标题+附件信息，正文留空可手填）
+        done(text, metaOf(f, a), pendingKBErr ? "（该格式无法自动提取正文，已保存标题与附件信息，可手工补正文）" : "");
         return;
       }
       if (!title || !text) { U.toast("请填写标题与正文，或选择文件自动识别"); return; }
