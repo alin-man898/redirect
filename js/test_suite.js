@@ -163,6 +163,24 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   await wait(300);
   ok(tp.chapters.some(c => (c.content || '').indexOf('图库') >= 0), '图库理解结果已融入技术标章节');
 
+  // 16. 文档上传格式全局放开（PDF/Word/WPS/图片/音视频等常用格式）
+  window.DecompressionStream = DecompressionStream; // jsdom 缺原生解压，注入 Node 原生实现
+  window.Response = Response;
+  window.Blob = Blob;
+  SYD.ui.render('plan');
+  const fAcc = (doc.getElementById('f-file').getAttribute('accept') || '');
+  ok(/\.pdf\b/.test(fAcc) && /\.docx\b/.test(fAcc) && /\.wps\b/.test(fAcc) && /\.jpg\b/.test(fAcc) && /\.mp4\b/.test(fAcc), '智能提取上传框已放开常用格式(accept)');
+  SYD.ui.render('lib');
+  const kbAcc = (doc.getElementById('kb-file').getAttribute('accept') || '');
+  ok(/\.pdf\b/.test(kbAcc) && /\.docx\b/.test(kbAcc) && /\.wps\b/.test(kbAcc) && /\.png\b/.test(kbAcc) && /\.doc\b/.test(kbAcc) && /\.mp3\b/.test(kbAcc), '知识库上传框已放开常用格式(accept)');
+
+  // 17. docx 正文提取引擎（用测试12生成的真实样本 _docx_test.docx）
+  const raw = fs.readFileSync(ROOT + 'js/_docx_test.docx');
+  const ab = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+  let docxText = '';
+  try { docxText = await SYD.docx.extractText(ab); } catch (e) { docxText = 'ERR:' + e.message; }
+  ok(!/^ERR/.test(docxText) && /星源达/.test(docxText), 'docx 正文提取成功(含中文正文, len=' + docxText.length + ')');
+
   console.log('\n结果：' + (fails === 0 ? '全部通过 ✅' : (fails + ' 项失败 ❌')));
   process.exit(fails === 0 ? 0 : 1);
 })().catch(e => { console.error('运行异常：', e); process.exit(2); });
