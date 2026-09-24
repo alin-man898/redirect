@@ -129,6 +129,24 @@
     });
   }
 
+  // ---------- 原件/不可编辑类型判定（体系/证书/资质等） ----------
+  // 上传时按文件名识别的类型命中以下关键词，即视为“原件”，自动锁定为只读（原样保留，仅可预览/打印/下载），
+  // 满足“体系、证书、资质不可编辑”的要求；同时每条支持手动「解锁」转为可编辑。
+  var LOCK_TYPE_KEYWORDS = [
+    "资质证书", "资质", "资格", "体系认证", "体系", "认证", "检测报告", "检测", "检验报告",
+    "质检", "专利证书", "软件著作权", "软著", "信用等级", "3C认证", "CE认证", "型式批准",
+    "行政许可", "登记证", "许可证", "认定证书", "注册证", "批准证书"
+  ];
+  function isOriginalType(type) {
+    if (!type) return false;
+    for (var i = 0; i < LOCK_TYPE_KEYWORDS.length; i++) {
+      if (type.indexOf(LOCK_TYPE_KEYWORDS[i]) >= 0) return true;
+    }
+    // 以“证书/认证/资质/体系”结尾的也视为原件
+    if (/(证书|认证|资质|体系)$/.test(type)) return true;
+    return false;
+  }
+
   // ---------- 附件查看器：预览 / 打印 / 自动识别再编辑（全站通用） ----------
   // 统一支撑：知识库文档、私人图库图片、方案招标文件原文。
   // 设计原则（原基础+局部提升）：不改动已有存储结构，仅叠加“查看/打印/再编辑”能力；
@@ -167,19 +185,26 @@
       document.body.appendChild(ov);
     }
     var isImg = o.kind === "image";
+    var readonly = !!o.readonly;
     var meta = o.meta || {};
     var metaParts = [meta.type, meta.date, meta.code].filter(Boolean);
     var metaLine = metaParts.length ? ("自动识别：" + esc(metaParts.join(" ｜ ")) + (meta.name ? " ｜ 文件：" + esc(meta.name) : "")) : "";
+    var lockNote = readonly ? "<div class='att-readonly-note'>🔒 原件只读：标题与内容已原样锁定，不可修改（如需编辑请在列表中点击「解锁」）。仅可预览与打印。</div>" : "";
+    var editHint = readonly ? "，已锁定" : "，可改";
     var previewArea = isImg
-      ? "<div class='att-preview'><img src='" + (o.src || "") + "' alt='预览'/></div><div class='att-label'>描述（自动识别，可改）</div><textarea id='att-text' class='att-text'>" + esc(o.text || "") + "</textarea>"
-      : "<div class='att-label'>正文（自动识别，可改）</div><textarea id='att-text' class='att-text'>" + esc(o.text || "") + "</textarea>";
+      ? "<div class='att-preview'><img src='" + (o.src || "") + "' alt='预览'/></div><div class='att-label'>描述（自动识别" + editHint + "）</div><textarea id='att-text' class='att-text'" + (readonly ? " readonly" : "") + ">" + esc(o.text || "") + "</textarea>"
+      : "<div class='att-label'>正文（自动识别" + editHint + "）</div><textarea id='att-text' class='att-text'" + (readonly ? " readonly" : "") + ">" + esc(o.text || "") + "</textarea>";
+    var actions = readonly
+      ? "<div class='att-actions'><button class='btn-primary btn-sm' id='att-print'>打印</button><button class='btn-ghost btn-sm' id='att-close'>关闭</button></div>"
+      : "<div class='att-actions'><button class='btn-primary btn-sm' id='att-print'>打印</button><button class='btn-ghost btn-sm' id='att-save'>保存并关闭</button><button class='btn-ghost btn-sm' id='att-close'>关闭</button></div>";
     ov.innerHTML =
       "<div class='att-box'>" +
-      "<div class='att-head'><b>" + (isImg ? "图片预览 / 打印 / 编辑" : "文档预览 / 打印 / 编辑") + "</b><button class='att-x' id='att-x' aria-label='关闭'>×</button></div>" +
-      "<div class='att-row'><label>标题（自动识别，可改）</label><input id='att-title' value='" + esc(o.title || "") + "'/></div>" +
+      "<div class='att-head'><b>" + (isImg ? (readonly ? "图片预览 / 打印（只读）" : "图片预览 / 打印 / 编辑") : (readonly ? "文档预览 / 打印（只读）" : "文档预览 / 打印 / 编辑")) + "</b><button class='att-x' id='att-x' aria-label='关闭'>×</button></div>" +
+      "<div class='att-row'><label>标题（自动识别" + editHint + "）</label><input id='att-title' value='" + esc(o.title || "") + "'" + (readonly ? " disabled" : "") + "/></div>" +
       (metaLine ? "<div class='att-meta'>" + metaLine + "</div>" : "") +
+      lockNote +
       previewArea +
-      "<div class='att-actions'><button class='btn-primary btn-sm' id='att-print'>打印</button><button class='btn-ghost btn-sm' id='att-save'>保存并关闭</button><button class='btn-ghost btn-sm' id='att-close'>关闭</button></div>" +
+      actions +
       "</div>";
     ov.classList.add("show");
     function close() { ov.classList.remove("show"); ov.innerHTML = ""; }
@@ -189,7 +214,8 @@
     document.getElementById("att-print").onclick = function () {
       printAttachment({ kind: o.kind, title: document.getElementById("att-title").value, text: document.getElementById("att-text").value, src: o.src, meta: o.meta });
     };
-    document.getElementById("att-save").onclick = function () {
+    var saveBtn = document.getElementById("att-save");
+    if (saveBtn) saveBtn.onclick = function () {
       var nt = document.getElementById("att-title").value;
       var ntx = document.getElementById("att-text").value;
       if (o.onSave) o.onSave(nt, ntx);
@@ -884,10 +910,10 @@
         if (IMG_EXT.indexOf(ext) >= 0) { skipped.push(f.name); pending--; if (!pending) cb(ok, skipped.length); return; }
         extractDocText(f).then(function (res) {
           var a = analyzeFileName(f.name);
-          m.knowledge.push({ id: U.uid(), title: a.title, text: res.text, meta: metaOf(f, a) });
+          m.knowledge.push({ id: U.uid(), title: a.title, text: res.text, meta: metaOf(f, a), locked: isOriginalType(a.type) });
         }).catch(function () {
           var a = analyzeFileName(f.name);
-          m.knowledge.push({ id: U.uid(), title: a.title, text: "", meta: metaOf(f, a) });
+          m.knowledge.push({ id: U.uid(), title: a.title, text: "", meta: metaOf(f, a), locked: isOriginalType(a.type) });
         }).then(function () {
           ok++; pending--; if (!pending) { save(); cb(ok, skipped.length); }
         });
@@ -920,19 +946,27 @@
       var h = "<div class='list'>";
       list.forEach(function (d) {
         var info = (d.meta && d.meta.info) ? esc(d.meta.info) : "";
-        h += "<div class='item'><div style='font-size:13px'><b>" + esc(d.title) + "</b><div class='muted' style='font-size:11px'>" + (info ? info + " · " : "") + esc(d.text.slice(0, 40)) + (d.text.length > 40 ? "…" : "") + "</div></div>" +
-          "<div class='item-actions'><button class='btn-ghost btn-sm kb-view' data-id='" + d.id + "'>预览/编辑</button><button class='btn-ghost btn-sm kb-print' data-id='" + d.id + "'>打印</button><button class='btn-danger btn-sm kb-del' data-id='" + d.id + "'>删</button></div></div>";
+        var lockBadge = d.locked ? "<span class='kb-lock-badge'>🔒 原件只读</span>" : "";
+        var actions = d.locked
+          ? "<div class='item-actions'><button class='btn-ghost btn-sm kb-view' data-id='" + d.id + "'>预览</button><button class='btn-ghost btn-sm kb-print' data-id='" + d.id + "'>打印</button><button class='btn-ghost btn-sm kb-unlock' data-id='" + d.id + "'>解锁</button><button class='btn-danger btn-sm kb-del' data-id='" + d.id + "'>删</button></div>"
+          : "<div class='item-actions'><button class='btn-ghost btn-sm kb-view' data-id='" + d.id + "'>预览/编辑</button><button class='btn-ghost btn-sm kb-print' data-id='" + d.id + "'>打印</button><button class='btn-danger btn-sm kb-del' data-id='" + d.id + "'>删</button></div>";
+        h += "<div class='item'><div style='font-size:13px'><b>" + esc(d.title) + "</b> " + lockBadge + "<div class='muted' style='font-size:11px'>" + (info ? info + " · " : "") + esc(d.text.slice(0, 40)) + (d.text.length > 40 ? "…" : "") + "</div></div>" + actions + "</div>";
       });
       h += "</div>"; if (!list.length) h = "<div class='empty'>暂无文档</div>";
       document.getElementById("kb-list").innerHTML = h;
       onAll(".kb-del", "click", function (e) { m.knowledge = m.knowledge.filter(function (x) { return x.id !== e.target.getAttribute("data-id"); }); save(); renderKB(); });
       onAll(".kb-view", "click", function (e) {
         var d = m.knowledge.filter(function (x) { return x.id === e.target.getAttribute("data-id"); })[0]; if (!d) return;
-        openAttachmentViewer({ kind: "doc", title: d.title, text: d.text, meta: d.meta, onSave: function (nt, ntx) { d.title = nt; d.text = ntx; save(); renderKB(); } });
+        openAttachmentViewer({ kind: "doc", title: d.title, text: d.text, meta: d.meta, readonly: !!d.locked, onSave: function (nt, ntx) { d.title = nt; d.text = ntx; save(); renderKB(); } });
       });
       onAll(".kb-print", "click", function (e) {
         var d = m.knowledge.filter(function (x) { return x.id === e.target.getAttribute("data-id"); })[0]; if (!d) return;
         printAttachment({ kind: "doc", title: d.title, text: d.text, meta: d.meta });
+      });
+      onAll(".kb-unlock", "click", function (e) {
+        var d = m.knowledge.filter(function (x) { return x.id === e.target.getAttribute("data-id"); })[0]; if (!d) return;
+        d.locked = false; save(); renderKB();
+        U.toast("已解锁，可编辑（再次点「预览/编辑」即可修改）");
       });
     }
     renderKB();
@@ -968,7 +1002,7 @@
       var text = document.getElementById("kb-text").value.trim();
       var f = document.getElementById("kb-file").files[0];
       function done(t, meta, extraMsg) {
-        m.knowledge.push({ id: U.uid(), title: title || (f ? f.name : "未命名文档"), text: t, meta: meta || null });
+        m.knowledge.push({ id: U.uid(), title: title || (f ? f.name : "未命名文档"), text: t, meta: meta || null, locked: !!(meta && isOriginalType(meta.type)) });
         save(); renderKB();
         document.getElementById("kb-title").value = "";
         document.getElementById("kb-text").value = "";
@@ -1010,7 +1044,7 @@
         var r = new FileReader();
         r.onload = function () {
           var a = analyzeFileName(f.name);
-          var im = { id: U.uid(), src: r.result, name: f.name, desc: a.title, tags: [] };
+          var im = { id: U.uid(), src: r.result, name: f.name, desc: a.title, tags: [], locked: isOriginalType(a.type) };
           m.images.push(im); save();
           if (SYD.ai.readyVision()) visionOne(im);
           ok++; done++; finalize();
@@ -1043,16 +1077,26 @@
       m.images.forEach(function (im) {
         h += "<div class='img-tile' data-id='" + im.id + "'>";
         if (im.desc) h += "<span class='vis-badge'>已理解</span>";
+        if (im.locked) h += "<span class='kb-lock-badge'>🔒 原件只读</span>";
         h += "<img src='" + im.src + "'/>";
         h += "<input class='img-desc-edit' value='" + esc(im.desc || im.name) + "' data-id='" + im.id + "' style='width:100%;font-size:12px;margin-top:4px' placeholder='图片描述（可修改）'/>";
         if (im.tags && im.tags.length) h += "<div class='img-tags'>" + im.tags.map(function (t) { return "<span class='img-tag'>" + esc(t) + "</span>"; }).join("") + "</div>";
-        h += "<div class='img-actions'><button class='btn-ghost btn-sm img-view' data-id='" + im.id + "'>预览</button><button class='btn-ghost btn-sm img-print' data-id='" + im.id + "'>打印</button><button class='btn-danger btn-sm img-del' data-id='" + im.id + "'>删除</button></div></div>";
+        if (im.locked) {
+          h += "<div class='img-actions'><button class='btn-ghost btn-sm img-view' data-id='" + im.id + "'>预览</button><button class='btn-ghost btn-sm img-print' data-id='" + im.id + "'>打印</button><button class='btn-ghost btn-sm img-unlock' data-id='" + im.id + "'>解锁</button><button class='btn-danger btn-sm img-del' data-id='" + im.id + "'>删除</button></div></div>";
+        } else {
+          h += "<div class='img-actions'><button class='btn-ghost btn-sm img-view' data-id='" + im.id + "'>预览</button><button class='btn-ghost btn-sm img-print' data-id='" + im.id + "'>打印</button><button class='btn-danger btn-sm img-del' data-id='" + im.id + "'>删除</button></div></div>";
+        }
       });
       box.innerHTML = h || "<span class='muted'>暂无图片</span>";
       onAll(".img-del", "click", function (e) { m.images = m.images.filter(function (x) { return x.id !== e.target.getAttribute("data-id"); }); save(); renderImgs(); });
       onAll(".img-view", "click", function (e) {
         var im = m.images.filter(function (x) { return x.id === e.target.getAttribute("data-id"); })[0]; if (!im) return;
-        openAttachmentViewer({ kind: "image", title: im.name, text: im.desc, src: im.src, meta: { name: im.name }, onSave: function (nt, nd) { im.name = nt; im.desc = nd; save(); renderImgs(); } });
+        openAttachmentViewer({ kind: "image", title: im.name, text: im.desc, src: im.src, meta: { name: im.name }, readonly: !!im.locked, onSave: function (nt, nd) { im.name = nt; im.desc = nd; save(); renderImgs(); } });
+      });
+      onAll(".img-unlock", "click", function (e) {
+        var im = m.images.filter(function (x) { return x.id === e.target.getAttribute("data-id"); })[0]; if (!im) return;
+        im.locked = false; save(); renderImgs();
+        U.toast("已解锁，可编辑");
       });
       onAll(".img-print", "click", function (e) {
         var im = m.images.filter(function (x) { return x.id === e.target.getAttribute("data-id"); })[0]; if (!im) return;
@@ -1174,9 +1218,10 @@
     setProject: function (id) { cur.pid = id; },
     modal: modal,
     confirm: confirmModal,
-    // 暴露给全站调用与自测：文件名智能识别 + 批量组装
+    // 暴露给全站调用与自测：文件名智能识别 + 批量组装 + 原件锁定判定
     analyzeFileName: analyzeFileName,
     buildKBEntries: buildKBEntries,
+    isOriginalType: isOriginalType,
     // 暴露给全站调用与自测：附件预览 / 打印 / 自动识别再编辑
     openAttachmentViewer: openAttachmentViewer,
     printAttachment: printAttachment,
