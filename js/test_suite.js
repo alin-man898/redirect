@@ -267,6 +267,41 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   SYD.ui.render('plan');
   ok(view.innerHTML.includes('b-fraw-view'), '智能方案含“预览/打印”招标文件原文按钮');
 
+  // 23. 原件/不可编辑类型判定（体系、证书、资质自动锁定）
+  const iot = SYD.ui.isOriginalType;
+  ok(iot('体系认证') === true, '类型=体系认证 → 锁');
+  ok(iot('资质证书') === true, '类型=资质证书 → 锁');
+  ok(iot('认证') === true, '类型=认证 → 锁');
+  ok(iot('检测报告') === true, '类型=检测报告 → 锁');
+  ok(iot('投标文件') === false, '类型=投标文件 → 不锁');
+  ok(iot('合同') === false, '类型=合同 → 不锁');
+  ok(iot('招标公告') === false, '类型=招标公告 → 不锁');
+  ok(iot('') === false, '类型为空 → 不锁');
+
+  // 24. 锁定文档在知识库显示“原件只读”角标与“解锁”按钮；解锁后可编辑
+  SYD.store.get().materials.knowledge = [];
+  SYD.store.get().materials.knowledge.push({ id: 'kL', title: 'ISO9001证书', text: '证书正文', meta: { type: '体系认证', info: '类型：体系认证' }, locked: true });
+  SYD.ui.render('lib');
+  ok(view.innerHTML.includes('kb-lock-badge'), '锁定文档显示“原件只读”角标');
+  ok(view.innerHTML.includes('kb-unlock'), '锁定文档显示“解锁”按钮');
+  view.querySelector('.kb-unlock').click();
+  ok(SYD.store.get().materials.knowledge[0].locked === false, '点解锁后 locked=false');
+  SYD.ui.render('lib');
+  ok(!view.innerHTML.includes('kb-lock-badge'), '解锁后“原件只读”角标消失');
+  ok(!view.innerHTML.includes('kb-unlock'), '解锁后“解锁”按钮消失');
+
+  // 25. 查看器只读模式：原件锁定时标题/正文禁用、无保存按钮、显示只读提示
+  SYD.ui.openAttachmentViewer({ kind: 'doc', title: '证书', text: '内容', meta: { type: '体系认证' }, readonly: true, onSave: function () {} });
+  ok(!doc.getElementById('att-save'), '只读模式无“保存并关闭”按钮');
+  ok(doc.getElementById('att-title').disabled === true, '只读模式标题框禁用');
+  ok(doc.getElementById('att-text').hasAttribute('readonly'), '只读模式正文框只读');
+  ok(doc.getElementById('att-overlay').innerHTML.includes('att-readonly-note'), '只读模式显示锁定提示');
+  doc.getElementById('att-close').click();
+  // 可编辑模式仍保留保存按钮
+  SYD.ui.openAttachmentViewer({ kind: 'doc', title: '合同', text: 'x', meta: {}, onSave: function () {} });
+  ok(!!doc.getElementById('att-save'), '可编辑模式含“保存并关闭”按钮');
+  doc.getElementById('att-close').click();
+
   console.log('\n结果：' + (fails === 0 ? '全部通过 ✅' : (fails + ' 项失败 ❌')));
   process.exit(fails === 0 ? 0 : 1);
 })().catch(e => { console.error('运行异常：', e); process.exit(2); });
