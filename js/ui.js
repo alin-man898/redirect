@@ -938,6 +938,12 @@
       var kv = pair.split(":"); html += fld(kv[1], "co-" + kv[0], c[kv[0]] || "");
     });
     html += "<div class='toolbar'><button class='btn-primary btn-sm' id='b-co-save'>保存企业资料</button></div></div>";
+    // 标书取用包（资质即取即用）
+    html += "<div class='card'><div class='section-title'>标书取用包（资质即取即用）</div><div class='section-sub'>勾选本次投标需提交的资质/证书/资料，一键生成取用清单，投标时按清单逐项调取原件</div>";
+    html += "<div id='pick-list' class='list'></div>";
+    html += "<div class='toolbar'><button class='btn-ghost btn-sm' id='pick-all'>全选原件</button><button class='btn-primary btn-sm' id='pick-gen'>生成取用包清单</button></div>";
+    html += "<div id='pick-result' class='editor-out' style='white-space:pre-wrap;min-height:60px;font-size:13px;margin-top:8px'>生成后此处显示取用清单（含类型分组、日期、编号、原件只读标记）。</div>";
+    html += "<div class='toolbar' id='pick-actions' style='display:none'><button class='btn-ghost btn-sm' id='pick-print'>打印</button><button class='btn-ghost btn-sm' id='pick-doc'>导出Word</button></div></div>";
     html += "</div>";
     view.innerHTML = html;
 
@@ -1113,6 +1119,47 @@
       var co = {}; ["name", "credit", "legal", "addr", "phone", "bank", "account", "product", "lead", "warranty"].forEach(function (k) { co[k] = document.getElementById("co-" + k).value.trim(); });
       m.company = co; save(); U.toast("企业资料已保存，可用于商务标填空");
     });
+
+    // 标书取用包（资质即取即用）
+    function renderPick() {
+      var box = document.getElementById("pick-list"); if (!box) return;
+      var list = m.knowledge || [];
+      if (!list.length) { box.innerHTML = "<div class='empty'>知识库暂无可取用素材，请先上传资质/证书</div>"; return; }
+      box.innerHTML = "<div class='list'>" + list.map(function (d) {
+        var t = (d.meta && d.meta.type) || "其他";
+        var info = (d.meta && d.meta.info) ? esc(d.meta.info) : "";
+        return "<div class='item'><label style='display:flex;gap:8px;align-items:flex-start;font-size:13px'><input type='checkbox' class='pick-cb' data-id='" + d.id + "' " + (d.locked ? "checked" : "") + " style='margin-top:3px'/><span><b>" + esc(d.title) + "</b> " + (d.locked ? "<span class='kb-lock-badge'>🔒 原件只读</span>" : "") + "<div class='muted' style='font-size:11px'>" + esc(t) + (info ? " · " + info : "") + "</div></span></label></div>";
+      }).join("") + "</div>";
+    }
+    renderPick();
+    var pickText = "";
+    on("#pick-all", "click", function () {
+      view.querySelectorAll(".pick-cb").forEach(function (cb) {
+        var d = m.knowledge.filter(function (x) { return x.id === cb.getAttribute("data-id"); })[0];
+        cb.checked = !!(d && d.locked);
+      });
+      U.toast("已勾选全部原件类素材");
+    });
+    on("#pick-gen", "click", function () {
+      var sel = m.knowledge.filter(function (d) {
+        var cb = view.querySelector(".pick-cb[data-id='" + d.id + "']");
+        return cb && cb.checked;
+      });
+      if (!sel.length) { U.toast("请至少勾选一项"); return; }
+      var r = buildPickList(sel);
+      pickText = r.text;
+      document.getElementById("pick-result").textContent = r.text;
+      document.getElementById("pick-actions").style.display = "";
+      U.toast("已生成取用包（" + r.count + " 项）");
+    });
+    on("#pick-print", "click", function () {
+      if (!pickText) { U.toast("请先生成取用包"); return; }
+      printAttachment({ kind: 'doc', title: '标书取用包清单', text: pickText, meta: { name: '标书取用包' } });
+    });
+    on("#pick-doc", "click", function () {
+      if (!pickText) { U.toast("请先生成取用包"); return; }
+      U.downloadDoc("标书取用包清单.doc", "<h2 style='text-align:center'>标书取用包清单</h2><div style='white-space:pre-wrap'>" + esc(pickText) + "</div>");
+    });
   }
 
   // ================= 设置 =================
@@ -1185,6 +1232,127 @@
     });
   }
 
+  // ---------- 投标授权书一键生成（对标：资质专利与授权·人员授权一键生成） ----------
+  // 纯函数：输入投标人资料 + 被授权人信息，输出正式《法定代表人授权委托书》文本。
+  // 不臆造任何企业真实信息：缺字段时留明确占位，提示用户到企业资料库补全。
+  function generateAuthLetter(d) {
+    d = d || {};
+    var c = d.company || {};
+    var coName = (d.coName || c.name || "").trim() || "（投标人名称，请在企业资料库补全）";
+    var legal = (d.legal || c.legal || "").trim() || "（法定代表人，请在企业资料库补全）";
+    var credit = (d.credit || c.credit || "").trim() || "（统一社会信用代码）";
+    var addr = (d.addr || c.addr || "").trim() || "（注册地址）";
+    var agent = (d.agent || "").trim();
+    var id = (d.id || "").trim();
+    var proj = (d.proj || "").trim();
+    var bidno = (d.bidno || "").trim();
+    var buyer = (d.buyer || "").trim();
+    var sd = (d.sd || "").trim();
+    var ed = (d.ed || "").trim();
+    var scope = (d.scope || "签署、澄清、说明、补正、递交、撤回本次投标文件及相关资料，并处理投标有关事务").trim();
+    var t = "法定代表人授权委托书\n\n";
+    t += "致：" + (buyer || "（招标人）") + "\n\n";
+    t += "本授权委托书声明：我 " + legal + "（法定代表人姓名），系 " + coName + "（投标人名称，统一社会信用代码：" + credit + "，注册地址：" + addr + "）的法定代表人，现授权委托 " + (agent || "（被授权人姓名）") + "（被授权人姓名），身份证号码：" + (id || "（请填写）") + "，作为我公司的合法代理人，以本公司名义参加 " + (proj || "（投标项目名称）") + (bidno ? "（招标编号：" + bidno + "）" : "") + " 的投标活动。\n\n";
+    t += "授权事项：" + scope + "。\n\n";
+    t += "代理人在投标、开标、评标、合同谈判过程中所签署的一切文件和处理与之有关的一切事务，我均予以承认。\n\n";
+    t += "代理人无转委托权。特此委托。\n\n";
+    t += "投标人（盖单位章）：" + coName + "\n";
+    t += "法定代表人（签字或盖章）：" + legal + "\n";
+    t += "授权有效期：" + (sd || "") + " 至 " + (ed || "") + "\n";
+    t += "代理人（签字）：____________\n";
+    return t;
+  }
+
+  // ---------- 标书取用包（资质即取即用） ----------
+  // 纯函数：给定已勾选的素材条目，输出按类型分组的取用清单文本。
+  function buildPickList(items) {
+    items = items || [];
+    var groups = {};
+    items.forEach(function (it) {
+      var k = (it.meta && it.meta.type) || "其他";
+      (groups[k] = groups[k] || []).push(it);
+    });
+    var keys = Object.keys(groups);
+    var text = "标书取用包清单（共 " + items.length + " 项）\n生成时间：" + U.fmtDate() + "\n\n";
+    keys.forEach(function (k, gi) {
+      text += (gi + 1) + ". 【" + k + "】(" + groups[k].length + " 项)\n";
+      groups[k].forEach(function (it, i) {
+        var m = it.meta || {};
+        text += "   (" + (i + 1) + ") " + (it.title || "未命名") + (m.date ? " 〔" + m.date + "〕" : "") + (m.code ? " 编号 " + m.code : "") + (it.locked ? " ［原件只读］" : "") + "\n";
+      });
+    });
+    return { count: items.length, text: text };
+  }
+
+  function renderAuthz() {
+    setView("投标授权");
+    var co = S.get().materials.company || {};
+    var miss = ["name", "legal", "credit", "addr"].filter(function (k) { return !(co[k] && String(co[k]).trim()); });
+    var html = "<div class='grid grid-2'>";
+    html += "<div class='card'><div class='section-title'>法定代表人授权委托书 · 一键生成</div><div class='section-sub'>投标人信息取自“企业素材-企业资料库”，未填请先补全</div>";
+    html += fld("被授权人姓名", "az-name", "");
+    html += fld("被授权人身份证号", "az-id", "");
+    html += fld("投标项目名称", "az-proj", "");
+    html += fld("招标编号", "az-bidno", "");
+    html += fld("招标人（招标单位）", "az-buyer", "");
+    html += fld("授权起始日期", "az-sd", U.fmtDate());
+    html += fld("授权截止日期", "az-ed", U.fmtDate());
+    html += "<label class='pill'>委托权限（可改）</label><textarea id='az-scope' rows='2' style='width:100%'>" + esc("签署、澄清、说明、补正、递交、撤回本次投标文件及相关资料，并处理投标有关事务") + "</textarea>";
+    html += "<div class='toolbar'><button class='btn-primary btn-sm' id='az-gen'>生成授权委托书</button><button class='btn-ghost btn-sm' id='az-print' disabled>打印</button><button class='btn-ghost btn-sm' id='az-doc' disabled>导出Word</button></div>";
+    if (miss.length) html += "<div class='muted' style='font-size:12px;color:var(--bad)'>提示：企业资料库缺少 " + esc(miss.join("、")) + "，请先到「企业素材-企业资料库」补全，否则委托书对应处留空。</div>";
+    html += "</div>";
+    html += "<div class='card'><div class='section-title'>预览</div><div id='az-preview' class='editor-out' style='white-space:pre-wrap;min-height:260px;font-size:13px'>填写左侧并点击「生成授权委托书」后，此处显示正式委托书文本。</div></div>";
+    html += "</div>";
+    html += "<div class='card'><div class='section-title'>已生成授权记录</div><div id='az-hist' class='list'></div></div>";
+    view.innerHTML = html;
+    var lastText = "";
+    function renderHist() {
+      var box = document.getElementById("az-hist"); if (!box) return;
+      var arr = S.get().materials.authz || [];
+      box.innerHTML = arr.length ? arr.map(function (a, i) {
+        return "<div class='item'><div style='font-size:13px'><b>" + (i + 1) + ". " + esc(a.agent || "未命名") + "</b> <span class='muted' style='font-size:11px'>" + esc(a.buyer || "") + " · " + esc(a.proj || "") + " · " + esc(a.sd || "") + "~" + esc(a.ed || "") + "</span></div><div class='item-actions'><button class='btn-ghost btn-sm az-h-print' data-i='" + i + "'>打印</button><button class='btn-ghost btn-sm az-h-doc' data-i='" + i + "'>Word</button><button class='btn-danger btn-sm az-h-del' data-i='" + i + "'>删</button></div></div>";
+      }).join("") : "<div class='empty'>暂无</div>";
+      onAll(".az-h-del", "click", function (e) { var i = +e.target.getAttribute("data-i"); (S.get().materials.authz || []).splice(i, 1); save(); renderHist(); });
+      onAll(".az-h-print", "click", function (e) { var a = (S.get().materials.authz || [])[+e.target.getAttribute("data-i")]; if (a) printAttachment({ kind: 'doc', title: '法定代表人授权委托书', text: a.text, meta: { name: '授权委托书' } }); });
+      onAll(".az-h-doc", "click", function (e) { var a = (S.get().materials.authz || [])[+e.target.getAttribute("data-i")]; if (a) U.downloadDoc("授权委托书_" + (a.agent || "") + ".doc", "<h2 style='text-align:center'>法定代表人授权委托书</h2><div style='white-space:pre-wrap'>" + esc(a.text) + "</div>"); });
+    }
+    renderHist();
+    function collect() {
+      return {
+        company: (S.get().materials.company || {}),
+        agent: (document.getElementById("az-name").value || "").trim(),
+        id: (document.getElementById("az-id").value || "").trim(),
+        proj: (document.getElementById("az-proj").value || "").trim(),
+        bidno: (document.getElementById("az-bidno").value || "").trim(),
+        buyer: (document.getElementById("az-buyer").value || "").trim(),
+        sd: (document.getElementById("az-sd").value || "").trim(),
+        ed: (document.getElementById("az-ed").value || "").trim(),
+        scope: (document.getElementById("az-scope").value || "").trim()
+      };
+    }
+    on("#az-gen", "click", function () {
+      var d = collect();
+      if (!d.agent) { U.toast("请填写被授权人姓名"); return; }
+      var text = generateAuthLetter(d);
+      lastText = text;
+      document.getElementById("az-preview").textContent = text;
+      document.getElementById("az-print").disabled = false;
+      document.getElementById("az-doc").disabled = false;
+      if (!S.get().materials.authz) S.get().materials.authz = [];
+      S.get().materials.authz.unshift({ agent: d.agent, buyer: d.buyer, proj: d.proj, sd: d.sd, ed: d.ed, text: text });
+      save(); renderHist();
+      U.toast("已生成授权委托书");
+    });
+    on("#az-print", "click", function () {
+      if (!lastText) { U.toast("请先生成"); return; }
+      printAttachment({ kind: 'doc', title: '法定代表人授权委托书', text: lastText, meta: { name: '授权委托书' } });
+    });
+    on("#az-doc", "click", function () {
+      if (!lastText) { U.toast("请先生成"); return; }
+      U.downloadDoc("授权委托书_" + (collect().agent || "") + ".doc", "<h2 style='text-align:center'>法定代表人授权委托书</h2><div style='white-space:pre-wrap'>" + esc(lastText) + "</div>");
+    });
+  }
+
   function emptyCard(t, sub) { return "<div class='card'><div class='section-title'>" + t + "</div><div class='empty'>" + sub + "</div></div>"; }
 
   /* 模块空状态引导页：无投标项目时不再只显示一句话，而是完整展示模块能力与工作流，并提供直达新建按钮 */
@@ -1211,7 +1379,7 @@
 
   var map = {
     dashboard: renderDashboard, plan: renderPlan, bid: renderBid, quote: renderQuote,
-    qc: renderQC, dup: renderDup, lib: renderLib, settings: renderSettings
+    qc: renderQC, dup: renderDup, lib: renderLib, authz: renderAuthz, settings: renderSettings
   };
   SYD.ui = {
     render: function (name) { (map[name] || map.dashboard)(); updateAIStatus(); },
@@ -1222,6 +1390,9 @@
     analyzeFileName: analyzeFileName,
     buildKBEntries: buildKBEntries,
     isOriginalType: isOriginalType,
+    // 暴露给全站调用与自测：投标授权书一键生成 + 标书取用包
+    generateAuthLetter: generateAuthLetter,
+    buildPickList: buildPickList,
     // 暴露给全站调用与自测：附件预览 / 打印 / 自动识别再编辑
     openAttachmentViewer: openAttachmentViewer,
     printAttachment: printAttachment,
