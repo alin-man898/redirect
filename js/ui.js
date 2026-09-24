@@ -1284,6 +1284,107 @@
     return { count: items.length, text: text };
   }
 
+  // ---------- 场景化标书模板库（按招标类型/评分项自动装配） ----------
+  // 新增能力（叠加，不改动任何既有模块）：把星源达高频标书的“章节骨架 + 评分项资质要求”固化为模板，
+  // 选模板 + 填招标信息后，一键生成章节骨架并按评分项关键词从企业素材(知识库)自动装配资质取用清单，
+  // 即“即取即用”。逻辑复用 buildKBEntries / isOriginalType / 打印引擎 / 取用包思路。
+  var BID_TEMPLATES = [
+    {
+      id: "cri", name: "焦炭反应性测定装置（CRI/CSR）", summary: "焦炭反应性及反应后强度测定装置投标骨架",
+      match: ["焦炭反应性", "CRI", "CSR", "反应后强度", "测定装置"],
+      sections: ["投标函", "法定代表人授权委托书", "投标人资格证明文件", "投标保证金", "商务标（报价一览表/分项报价）", "技术标（技术方案/技术偏离表）", "供货业绩", "质量保证与售后服务", "培训方案"],
+      scoreItems: [
+        { name: "企业资质与体系认证", required: true, keywords: ["体系认证", "ISO", "资质", "证书", "认证"] },
+        { name: "检测/检验报告", required: true, keywords: ["检测", "检验", "质检", "报告"] },
+        { name: "供货业绩", required: true, keywords: ["业绩", "合同", "业绩表", "用户"] },
+        { name: "知识产权（专利/软著）", required: false, keywords: ["专利", "软著", "著作权", "知识产权"] },
+        { name: "产品认证（煤安/防爆等）", required: false, keywords: ["煤安", "防爆", "产品认证", "3C", "CE"] }
+      ]
+    },
+    {
+      id: "cokeoven", name: "小焦炉 / 试验焦炉", summary: "40kg 试验焦炉等小焦炉类投标骨架",
+      match: ["小焦炉", "试验焦炉", "焦炉"],
+      sections: ["投标函", "法定代表人授权委托书", "投标人资格证明文件", "商务标（报价一览表/分项报价）", "技术标（技术方案/技术偏离表）", "同类产品供货业绩", "安装调试与培训", "售后服务"],
+      scoreItems: [
+        { name: "企业资质与体系认证", required: true, keywords: ["体系认证", "ISO", "资质", "证书", "认证"] },
+        { name: "检测/检验报告", required: true, keywords: ["检测", "检验", "质检", "报告"] },
+        { name: "供货业绩（焦炉类）", required: true, keywords: ["业绩", "合同", "业绩表", "焦炉"] },
+        { name: "知识产权（专利/软著）", required: false, keywords: ["专利", "软著", "著作权"] }
+      ]
+    },
+    {
+      id: "prep", name: "煤焦智能制样系统", summary: "智能化采制样/制样系统投标骨架",
+      match: ["制样", "采制样", "智能制样", "采样"],
+      sections: ["投标函", "法定代表人授权委托书", "投标人资格证明文件", "商务标（报价一览表/分项报价）", "技术方案（系统组成/工艺流程/自控）", "技术偏离表", "同类业绩", "安装调试与培训", "售后与备件"],
+      scoreItems: [
+        { name: "企业资质与体系认证", required: true, keywords: ["体系认证", "ISO", "资质", "证书", "认证"] },
+        { name: "检测/检验报告", required: true, keywords: ["检测", "检验", "质检", "报告"] },
+        { name: "供货业绩（制样/采样类）", required: true, keywords: ["业绩", "合同", "业绩表", "制样", "采样"] },
+        { name: "软件著作权 / 专利", required: false, keywords: ["软著", "专利", "著作权", "软件"] },
+        { name: "产品认证", required: false, keywords: ["煤安", "防爆", "产品认证", "3C"] }
+      ]
+    },
+    {
+      id: "generic", name: "通用标书骨架", summary: "未命中专用类型时的兜底模板",
+      match: [],
+      sections: ["投标函", "法定代表人授权委托书", "投标人资格证明文件", "商务标", "技术标", "业绩", "售后服务"],
+      scoreItems: [
+        { name: "企业资质与体系认证", required: true, keywords: ["体系认证", "ISO", "资质", "证书", "认证"] },
+        { name: "检测/检验报告", required: true, keywords: ["检测", "检验", "质检", "报告"] },
+        { name: "供货业绩", required: true, keywords: ["业绩", "合同", "业绩表"] }
+      ]
+    }
+  ];
+
+  // 纯函数：根据招标名称自动推荐模板（命中关键词最多者；无命中返回通用兜底）
+  function recommendTemplate(projName) {
+    projName = (projName || "").toLowerCase();
+    var fallback = BID_TEMPLATES[BID_TEMPLATES.length - 1];
+    var best = fallback, bestScore = 0;
+    BID_TEMPLATES.forEach(function (t) {
+      var s = 0;
+      (t.match || []).forEach(function (kw) { if (projName.indexOf(String(kw).toLowerCase()) >= 0) s++; });
+      if (s > bestScore) { bestScore = s; best = t; }
+    });
+    return bestScore > 0 ? best : fallback;
+  }
+
+  // 纯函数：素材条目是否命中某评分项关键词（匹配 meta.type / 标题 / info）
+  function matchScoreItem(item, keywords) {
+    var blob = [((item.meta || {}).type) || "", item.title || "", ((item.meta || {}).info) || ""].join(" ").toLowerCase();
+    for (var i = 0; i < (keywords || []).length; i++) {
+      if (blob.indexOf(String(keywords[i]).toLowerCase()) >= 0) return true;
+    }
+    return false;
+  }
+
+  function cnNum(n) { var d = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]; return n <= 10 ? d[n] : String(n); }
+
+  // 纯函数：装配标书骨架 + 评分项资质清单（核心，可单测）
+  function assembleBid(template, tender, kbEntries) {
+    template = template || BID_TEMPLATES[BID_TEMPLATES.length - 1];
+    tender = tender || {};
+    kbEntries = kbEntries || [];
+    var co = ((typeof S !== "undefined") && S.get && S.get().materials && S.get().materials.company) || {};
+    var head = "投标单位：" + (co.name || "（待填）") + "    招标编号：" + (tender.bidno || "（待填）") +
+      "    招标人：" + (tender.buyer || "（待填）") + "    项目名称：" + (tender.proj || "（待填）") + "\n";
+    var skeleton = "【标书章节骨架】\n" + template.sections.map(function (s, i) { return "第" + cnNum(i + 1) + "章 " + s + "（待编制）"; }).join("\n") + "\n";
+    var scoreLines = "", matchedAny = 0;
+    template.scoreItems.forEach(function (si, gi) {
+      var hits = kbEntries.filter(function (it) { return matchScoreItem(it, si.keywords); });
+      matchedAny += hits.length;
+      scoreLines += (gi + 1) + ". " + si.name + (si.required ? "【必备】" : "【加分】") + "：匹配到 " + hits.length + " 项\n";
+      hits.forEach(function (it, i) {
+        var m = it.meta || {};
+        scoreLines += "   - " + (it.title || "未命名") + (m.date ? "〔" + m.date + "〕" : "") + (m.code ? " 编号" + m.code : "") + (it.locked ? "［原件只读］" : "") + "\n";
+      });
+      if (!hits.length) scoreLines += "   （素材库暂无匹配，请到「企业素材-知识库」补充）\n";
+    });
+    var scoreBlock = "【评分项资质装配】\n" + scoreLines;
+    var text = head + "\n" + skeleton + "\n" + scoreBlock + "\n模板：" + template.name + " ｜ 生成时间：" + ((typeof U !== "undefined" && U.fmtDate) ? U.fmtDate() : "") + "\n";
+    return { templateId: template.id, skeleton: skeleton, scoreBlock: scoreBlock, matchedCount: matchedAny, text: text };
+  }
+
   function renderAuthz() {
     setView("投标授权");
     var co = S.get().materials.company || {};
@@ -1353,6 +1454,52 @@
     });
   }
 
+  function renderTmpl() {
+    setView("标书模板");
+    var html = "<div class='grid grid-2'>";
+    html += "<div class='card'><div class='section-title'>场景化标书模板库</div><div class='section-sub'>按招标类型套用骨架，并按评分项自动从企业素材装配资质清单（“即取即用”）</div>";
+    html += "<div class='section-sub'>选择模板（或填招标名称后点「智能推荐」）：</div>";
+    html += "<div id='tmpl-list' class='list'>" + BID_TEMPLATES.map(function (t) {
+      return "<div class='item tmpl-item' data-id='" + t.id + "'><div style='font-size:13px'><b>" + esc(t.name) + "</b></div><div class='muted' style='font-size:11px'>" + esc(t.summary) + "</div></div>";
+    }).join("") + "</div>";
+    html += fld("招标项目名称（用于智能推荐）", "tm-proj", "");
+    html += fld("招标编号", "tm-bidno", "");
+    html += fld("招标人", "tm-buyer", "");
+    html += "<div class='toolbar'><button class='btn-ghost btn-sm' id='tm-reco'>智能推荐模板</button><button class='btn-primary btn-sm' id='tm-gen' disabled>一键生成标书装配</button><button class='btn-ghost btn-sm' id='tm-print' disabled>打印</button><button class='btn-ghost btn-sm' id='tm-doc' disabled>导出Word</button></div>";
+    html += "</div>";
+    html += "<div class='card'><div class='section-title'>装配预览</div><div id='tm-preview' class='editor-out' style='white-space:pre-wrap;min-height:320px;font-size:13px'>选择左侧模板并填写招标信息，点击「一键生成标书装配」。系统将生成章节骨架，并按评分项自动从企业素材（知识库）匹配资质/证书/业绩，形成“即取即用”的取用装配。</div><div id='tm-authlink' class='muted' style='font-size:12px;margin-top:10px;display:none'>提示：标书中含“法定代表人授权委托书”章节，可到「投标授权」模块一键生成 →</div></div>";
+    html += "</div>";
+    view.innerHTML = html;
+    var curT = null, lastText = "";
+    function highlight(id) { document.querySelectorAll(".tmpl-item").forEach(function (el) { el.style.background = el.getAttribute("data-id") === id ? "var(--accent-soft)" : ""; }); }
+    onAll(".tmpl-item", "click", function (e) {
+      curT = BID_TEMPLATES.filter(function (t) { return t.id === e.currentTarget.getAttribute("data-id"); })[0];
+      highlight(curT.id); document.getElementById("tm-gen").disabled = false; U.toast("已选模板：" + curT.name);
+    });
+    on("#tm-reco", "click", function () {
+      var p = document.getElementById("tm-proj").value || "";
+      var t = recommendTemplate(p); curT = t; highlight(t.id); document.getElementById("tm-gen").disabled = false; U.toast("推荐模板：" + t.name);
+    });
+    on("#tm-gen", "click", function () {
+      if (!curT) { U.toast("请先选择模板"); return; }
+      var tender = {
+        proj: (document.getElementById("tm-proj").value || "").trim(),
+        bidno: (document.getElementById("tm-bidno").value || "").trim(),
+        buyer: (document.getElementById("tm-buyer").value || "").trim()
+      };
+      var kb = buildKBEntries(S.get().materials.knowledge || []);
+      var r = assembleBid(curT, tender, kb);
+      lastText = r.text;
+      document.getElementById("tm-preview").textContent = r.text;
+      document.getElementById("tm-print").disabled = false;
+      document.getElementById("tm-doc").disabled = false;
+      document.getElementById("tm-authlink").style.display = "";
+      U.toast("已生成装配（匹配资质 " + r.matchedCount + " 项）");
+    });
+    on("#tm-print", "click", function () { if (!lastText) { U.toast("请先生成"); return; } printAttachment({ kind: "doc", title: "标书装配方案", text: lastText, meta: { name: "标书模板装配" } }); });
+    on("#tm-doc", "click", function () { if (!lastText) { U.toast("请先生成"); return; } U.downloadDoc("标书装配_" + (curT ? curT.name : "") + ".doc", "<h2 style='text-align:center'>标书装配方案</h2><div style='white-space:pre-wrap'>" + esc(lastText) + "</div>"); });
+  }
+
   function emptyCard(t, sub) { return "<div class='card'><div class='section-title'>" + t + "</div><div class='empty'>" + sub + "</div></div>"; }
 
   /* 模块空状态引导页：无投标项目时不再只显示一句话，而是完整展示模块能力与工作流，并提供直达新建按钮 */
@@ -1379,7 +1526,7 @@
 
   var map = {
     dashboard: renderDashboard, plan: renderPlan, bid: renderBid, quote: renderQuote,
-    qc: renderQC, dup: renderDup, lib: renderLib, authz: renderAuthz, settings: renderSettings
+    qc: renderQC, dup: renderDup, lib: renderLib, authz: renderAuthz, tmpl: renderTmpl, settings: renderSettings
   };
   SYD.ui = {
     render: function (name) { (map[name] || map.dashboard)(); updateAIStatus(); },
@@ -1393,6 +1540,11 @@
     // 暴露给全站调用与自测：投标授权书一键生成 + 标书取用包
     generateAuthLetter: generateAuthLetter,
     buildPickList: buildPickList,
+    // 暴露给全站调用与自测：场景化标书模板库（按招标类型/评分项自动装配）
+    BID_TEMPLATES: BID_TEMPLATES,
+    recommendTemplate: recommendTemplate,
+    matchScoreItem: matchScoreItem,
+    assembleBid: assembleBid,
     // 暴露给全站调用与自测：附件预览 / 打印 / 自动识别再编辑
     openAttachmentViewer: openAttachmentViewer,
     printAttachment: printAttachment,
