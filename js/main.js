@@ -2,7 +2,7 @@
 (function () {
   "use strict";
   var SYD = window.SYD, S = SYD.store;
-  var VIEW_TITLES = { dashboard: "工作中心", plan: "智能方案", bid: "智能标书", quote: "智能报价", qc: "智能质检", dup: "方案查重", lib: "企业素材", settings: "系统设置" };
+  var VIEW_TITLES = { dashboard: "工作中心", plan: "智能方案", bid: "智能标书", quote: "智能报价", qc: "智能质检", dup: "方案查重", lib: "企业素材", authz: "投标授权", settings: "系统设置" };
 
   function applyTheme(t) {
     document.documentElement.setAttribute("data-theme", t);
