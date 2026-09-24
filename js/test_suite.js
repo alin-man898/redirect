@@ -80,6 +80,26 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   doc.getElementById('b-kb-add').click();
   ok(SYD.store.get().materials.knowledge.length === 1, '知识库文档已添加');
 
+  // 7b. 知识库 单文件·不可自动提取格式(.wps) 点添加也能入库（回归：禁止静默拒绝）
+  const lenBeforeWps = SYD.store.get().materials.knowledge.length;
+  const wpsFile = new window.File(['fake wps bytes'], '业绩证明_2024_甲方.wps', { type: 'application/wps' });
+  Object.defineProperty(doc.getElementById('kb-file'), 'files', { value: [wpsFile], configurable: true });
+  doc.getElementById('kb-file').dispatchEvent(new window.Event('change'));
+  await wait(250);
+  doc.getElementById('kb-title').value = ''; doc.getElementById('kb-text').value = '';
+  doc.getElementById('b-kb-add').click();
+  await wait(150);
+  ok(SYD.store.get().materials.knowledge.length === lenBeforeWps + 1, '不可提取格式单文件点添加也能入库(回归)');
+
+  // 7c. 知识库 多选批量入库
+  const lenBeforeMulti = SYD.store.get().materials.knowledge.length;
+  const mf1 = new window.File(['正文一'], '合同_2025_甲方.doc', { type: 'application/msword' });
+  const mf2 = new window.File(['正文二'], '报价单_2026_乙方.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+  Object.defineProperty(doc.getElementById('kb-file'), 'files', { value: [mf1, mf2], configurable: true });
+  doc.getElementById('kb-file').dispatchEvent(new window.Event('change'));
+  await wait(400);
+  ok(SYD.store.get().materials.knowledge.length === lenBeforeMulti + 2, '知识库多选批量入库(回归)');
+
   // 8. 设置 - AI 配置保存
   SYD.ui.render('settings');
   doc.getElementById('ai-url').value = 'https://api.openai.com/v1';
