@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>智能投标平台 · 工程数据导出</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    font-family: "Microsoft YaHei","微软雅黑",sans-serif;
+    background: linear-gradient(135deg,#1e3a8a 0%, #0f203f 100%);
+    color: #fff; display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    width: 100%; max-width: 540px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 18px;
+    padding: 32px 28px;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+  }
+  .logo { font-size: 13px; letter-spacing: 2px; color: #ff8c3b; font-weight: 700; }
+  h1 { font-size: 22px; margin: 6px 0 4px; }
+  .sub { font-size: 13px; color: rgba(255,255,255,0.72); line-height: 1.7; margin-bottom: 18px; }
+  .status {
+    background: rgba(0,0,0,0.25); border-radius: 12px; padding: 14px 16px;
+    font-size: 13.5px; line-height: 1.85; margin-bottom: 20px;
+  }
+  .status b { color: #ffce8a; }
+  .btn {
+    display: block; width: 100%; text-align: center;
+    background: linear-gradient(135deg,#ff8c3b,#ff6a00);
+    color:#fff; font-size: 16px; font-weight: 700;
+    border: none; border-radius: 12px; padding: 14px; cursor: pointer;
+    transition: transform .1s ease, opacity .2s;
+  }
+  .btn:hover { opacity: .92; transform: translateY(-1px); }
+  .btn:disabled { background:#555; cursor: not-allowed; opacity:.6; }
+  .tip { font-size: 12px; color: rgba(255,255,255,0.55); margin-top: 14px; line-height:1.7; }
+  .ok { color:#7CFC9B; }
+  .err { color:#ff7b7b; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">SYD · 智能投标工作平台</div>
+    <h1>工程数据导出</h1>
+    <div class="sub">本页与平台同源部署。打开后会读取你当前浏览器里保存的全部工程数据（投标项目、知识库、图库、企业资料、报价、质检模板、AI 配置等），一键下载为 JSON 备份文件。</div>
+    <div class="status" id="status">正在读取本地数据…</div>
+    <button class="btn" id="dl" disabled>下载我的工程数据 (.json)</button>
+    <div class="tip">重要：数据仅存在于你<b>正在使用的这台电脑、这个浏览器</b>。请在<b>平时打开平台的同一浏览器</b>里访问本页；换设备 / 清缓存 / 隐身模式都读不到旧数据。建议重要节点下载备份存入微云/网盘，在另一台电脑「设置 → 导入工程数据」即可恢复。</div>
+  </div>
+<script>
+(function () {
+  var KEY = "syd_bid_platform_v1";
+  var statusEl = document.getElementById("status");
+  var btn = document.getElementById("dl");
+  var raw = null;
+  try { raw = localStorage.getItem(KEY); } catch (e) {}
+
+  if (!raw) {
+    statusEl.innerHTML = "<span class='err'>未检测到工程数据。</span><br/>请确认：① 你是在<b>平时使用平台的同一浏览器</b>打开本页；② 此前已在平台创建过项目/资料。<br/>若用隐身模式或换设备打开，则读不到旧数据。";
+    return;
+  }
+
+  var state;
+  try { state = JSON.parse(raw); } catch (e) {
+    statusEl.innerHTML = "<span class='err'>本地数据已损坏，无法解析。</span>";
+    return;
+  }
+
+  var projN = (state.projects || []).length;
+  var kbN = ((state.materials && state.materials.knowledge) || []).length;
+  var imgN = ((state.materials && state.materials.images) || []).length;
+  statusEl.innerHTML = "已检测到本地工程数据：<br/>· 投标项目：<b>" + projN + "</b> 个<br/>· 知识库文档：<b>" + kbN + "</b> 条<br/>· 私人图库：<b>" + imgN + "</b> 张<br/>点击下方按钮即可下载完整备份（含全部配置）。";
+  btn.disabled = false;
+
+  btn.addEventListener("click", function () {
+    var pkg = {
+      _app: "智能投标工作平台",
+      _ver: 1,
+      _exported: fmtDate(),
+      data: state
+    };
+    var blob = new Blob([JSON.stringify(pkg, null, 2)], { type: "application/json;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = "智能投标平台_工程数据_" + fmtDate() + ".json";
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 100);
+    statusEl.innerHTML += "<br/><span class='ok'>✓ 已开始下载：" + a.download + "</span>";
+  });
+
+  function fmtDate() {
+    var d = new Date();
+    var p = function (n) { return (n < 10 ? "0" : "") + n; };
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+  }
+})();
+</script>
+</body>
+</html>
