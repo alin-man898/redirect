@@ -10,7 +10,8 @@
       materials: {             // 企业素材
         knowledge: [],         // 知识库文档
         images: [],            // 私人图库(base64 + 描述 + 标签)
-        company: null          // 企业资料库(结构化)
+        company: null,         // 企业资料库(结构化)
+        authz: []              // 投标授权书生成记录
       },
       ai: { baseUrl: "https://api.openai.com/v1", key: "", model: "gpt-4o-mini", visionModel: "gpt-4o-mini", enabled: false },
       qcTemplates: [],         // 自定义质检模板
