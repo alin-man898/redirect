@@ -181,6 +181,40 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   try { docxText = await SYD.docx.extractText(ab); } catch (e) { docxText = 'ERR:' + e.message; }
   ok(!/^ERR/.test(docxText) && /星源达/.test(docxText), 'docx 正文提取成功(含中文正文, len=' + docxText.length + ')');
 
+  // 18. 文件名智能识别引擎（标题/类型/日期/编号/附件信息）
+  const af = SYD.ui.analyzeFileName;
+  const a1 = af('某钢铁集团焦炭反应性测定装置投标文件_2026-03-04.pdf');
+  ok(a1.date === '2026-03-04', '识别完整日期 2026-03-04');
+  ok(a1.type === '投标文件', '识别类型=投标文件');
+  ok(a1.title.indexOf('焦炭反应性测定装置') >= 0, '标题保留产品名(剔除日期/类型后)');
+  ok(a1.info.indexOf('类型：投标文件') >= 0 && a1.info.indexOf('日期：2026-03-04') >= 0, '附件信息串含类型与日期');
+  const a2 = af('ISO9001质量体系认证证书.jpg');
+  ok(a2.type === '体系认证' || a2.type === '认证', '识别类型=认证类');
+  ok(a2.title.indexOf('ISO9001') >= 0, '标题保留 ISO9001');
+  ok(a2.info.indexOf('类型：') >= 0, '附件信息含类型');
+  const a3 = af('招标公告〔2026〕第012号.docx');
+  ok(a3.type === '招标公告', '识别类型=招标公告');
+  ok(a3.code === '012', '识别编号=012(排除年份误判)');
+  const a4 = af('业绩证明_客户A_2025年度合同.pdf');
+  ok(a4.type === '业绩证明', '识别类型=业绩证明');
+  ok(a4.date === '2025', '识别仅年份 2025');
+
+  // 19. 全站上传框支持一次性多选附件
+  SYD.ui.render('lib');
+  ok(doc.getElementById('kb-file').hasAttribute('multiple'), '知识库上传框支持多选(multiple)');
+  ok(doc.getElementById('img-file').hasAttribute('multiple'), '私人图库上传框支持多选(multiple)');
+  SYD.ui.render('plan');
+  ok(doc.getElementById('f-file').hasAttribute('multiple'), '方案招标文件上传框支持多选(multiple)');
+
+  // 20. 批量组装知识库条目（标题/附件信息自动识别）
+  const ents = SYD.ui.buildKBEntries([
+    { name: '某钢厂焦炭反应性测定装置投标文件_2026-03-04.pdf', text: '正文A' },
+    { name: 'ISO9001质量体系认证证书.jpg', text: '正文B' }
+  ]);
+  ok(ents.length === 2, '批量组装 2 条条目');
+  ok(ents[0].title.indexOf('焦炭反应性测定装置') >= 0 && ents[0].meta.type === '投标文件' && ents[0].meta.date === '2026-03-04', '首条标题/类型/日期自动识别正确');
+  ok(ents[1].meta.type === '体系认证' && ents[1].text === '正文B', '次条类型与正文正确');
+
   console.log('\n结果：' + (fails === 0 ? '全部通过 ✅' : (fails + ' 项失败 ❌')));
   process.exit(fails === 0 ? 0 : 1);
 })().catch(e => { console.error('运行异常：', e); process.exit(2); });
