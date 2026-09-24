@@ -129,6 +129,75 @@
     });
   }
 
+  // ---------- 附件查看器：预览 / 打印 / 自动识别再编辑（全站通用） ----------
+  // 统一支撑：知识库文档、私人图库图片、方案招标文件原文。
+  // 设计原则（原基础+局部提升）：不改动已有存储结构，仅叠加“查看/打印/再编辑”能力；
+  // 正文/描述在查看器内可改，点“保存并关闭”经 onSave 回写，满足“自动识别再编辑”。
+  // opts: { kind:'doc'|'image', title, text, src?, meta?, onSave(newTitle,newText) }
+  function attachmentPrintHTML(o) {
+    o = o || {};
+    var title = esc(o.title || "未命名附件");
+    var meta = o.meta || {};
+    var metaParts = [meta.type && ("类型：" + meta.type), meta.date && ("日期：" + meta.date), meta.code && ("编号：" + meta.code), meta.name && ("文件名：" + meta.name)].filter(Boolean);
+    var metaLine = metaParts.length ? "<div class='meta'>" + esc(metaParts.join(" ｜ ")) + "</div>" : "";
+    var head = "<!doctype html><html lang='zh'><head><meta charset='utf-8'><title>打印 - " + title + "</title>" +
+      "<style>body{font-family:'Microsoft YaHei',sans-serif;padding:24px;color:#222;max-width:900px;margin:0 auto}" +
+      "h2{font-size:20px;margin:0 0 6px}.meta{color:#666;font-size:13px}hr{border:none;border-top:1px solid #eee;margin:10px 0}" +
+      "img{max-width:100%;border:1px solid #ccc;margin:12px 0}.txt{white-space:pre-wrap;line-height:1.8;margin-top:8px;font-size:14px}" +
+      "@media print{button{display:none}}</style></head><body>";
+    var foot = "</body></html>";
+    if (o.kind === "image" && o.src) {
+      return head + "<h2>" + title + "</h2>" + metaLine + "<hr/><img src='" + o.src + "'/><div class='txt'>" + esc(o.text || "") + "</div>" + foot;
+    }
+    return head + "<h2>" + title + "</h2>" + metaLine + "<hr/><div class='txt'>" + esc(o.text || "") + "</div>" + foot;
+  }
+  function printAttachment(o) {
+    var w = window.open("", "_blank");
+    if (!w) { U.toast("打印被浏览器拦截，请允许弹出窗口后重试"); return; }
+    w.document.open(); w.document.write(attachmentPrintHTML(o)); w.document.close();
+    try { w.focus(); } catch (e) {}
+  }
+  function openAttachmentViewer(o) {
+    o = o || {};
+    var ov = document.getElementById("att-overlay");
+    if (!ov) {
+      ov = document.createElement("div");
+      ov.id = "att-overlay";
+      ov.className = "modal-overlay att-overlay";
+      document.body.appendChild(ov);
+    }
+    var isImg = o.kind === "image";
+    var meta = o.meta || {};
+    var metaParts = [meta.type, meta.date, meta.code].filter(Boolean);
+    var metaLine = metaParts.length ? ("自动识别：" + esc(metaParts.join(" ｜ ")) + (meta.name ? " ｜ 文件：" + esc(meta.name) : "")) : "";
+    var previewArea = isImg
+      ? "<div class='att-preview'><img src='" + (o.src || "") + "' alt='预览'/></div><div class='att-label'>描述（自动识别，可改）</div><textarea id='att-text' class='att-text'>" + esc(o.text || "") + "</textarea>"
+      : "<div class='att-label'>正文（自动识别，可改）</div><textarea id='att-text' class='att-text'>" + esc(o.text || "") + "</textarea>";
+    ov.innerHTML =
+      "<div class='att-box'>" +
+      "<div class='att-head'><b>" + (isImg ? "图片预览 / 打印 / 编辑" : "文档预览 / 打印 / 编辑") + "</b><button class='att-x' id='att-x' aria-label='关闭'>×</button></div>" +
+      "<div class='att-row'><label>标题（自动识别，可改）</label><input id='att-title' value='" + esc(o.title || "") + "'/></div>" +
+      (metaLine ? "<div class='att-meta'>" + metaLine + "</div>" : "") +
+      previewArea +
+      "<div class='att-actions'><button class='btn-primary btn-sm' id='att-print'>打印</button><button class='btn-ghost btn-sm' id='att-save'>保存并关闭</button><button class='btn-ghost btn-sm' id='att-close'>关闭</button></div>" +
+      "</div>";
+    ov.classList.add("show");
+    function close() { ov.classList.remove("show"); ov.innerHTML = ""; }
+    document.getElementById("att-x").onclick = close;
+    document.getElementById("att-close").onclick = close;
+    ov.onclick = function (e) { if (e.target === ov) close(); };
+    document.getElementById("att-print").onclick = function () {
+      printAttachment({ kind: o.kind, title: document.getElementById("att-title").value, text: document.getElementById("att-text").value, src: o.src, meta: o.meta });
+    };
+    document.getElementById("att-save").onclick = function () {
+      var nt = document.getElementById("att-title").value;
+      var ntx = document.getElementById("att-text").value;
+      if (o.onSave) o.onSave(nt, ntx);
+      U.toast("已保存修改");
+      close();
+    };
+  }
+
   // ---------- 通用弹窗（替代原生 prompt/confirm，兼容预览环境） ----------
   function modal(opts) {
     opts = opts || {};
@@ -334,7 +403,7 @@
     html += "<label>项目名称</label><input id='f-name' value='" + esc(p.name) + "'/>";
     html += "<label>招标文件原文（粘贴，或上传 .pdf / .txt / .md）</label>";
     html += "<textarea id='f-raw' rows='7' placeholder='将招标文件全文粘贴此处，或上传 PDF 由本地 pdf.js 真实解析，用于智能提取招标方、项目、预算、资质、标准、评分办法…'>" + esc(p.rawText) + "</textarea>";
-    html += "<div class='toolbar'><input type='file' id='f-file' multiple accept='" + ACCEPT_DOCS + "' style='width:auto'/><button class='btn-ghost btn-sm' id='b-extract'>智能提取基础信息</button><span class='muted' id='extract-tip' style='font-size:12px'></span></div>";
+    html += "<div class='toolbar'><input type='file' id='f-file' multiple accept='" + ACCEPT_DOCS + "' style='width:auto'/><button class='btn-ghost btn-sm' id='b-extract'>智能提取基础信息</button><button class='btn-ghost btn-sm' id='b-fraw-view'>预览/打印</button><span class='muted' id='extract-tip' style='font-size:12px'></span></div>";
 
     html += "<label>撰写模式</label><div class='row wrap'>";
     [["quick", "快速编写"], ["score", "快捷评分"], ["custom", "定制评分"]].forEach(function (m) {
@@ -434,6 +503,16 @@
       if (!p.basics.buyer && !p.basics.project) { document.getElementById("extract-tip").textContent = "未识别到关键字段，可手动补全"; }
       else document.getElementById("extract-tip").textContent = "已提取：" + [p.basics.buyer, p.basics.project, p.basics.budget].filter(Boolean).join(" / ");
       save(); renderPlan();
+    });
+    on("#b-fraw-view", "click", function () {
+      openAttachmentViewer({
+        kind: "doc", title: p.name, text: p.rawText, meta: null,
+        onSave: function (nt, ntx) {
+          p.rawText = ntx;
+          var el = document.getElementById("f-raw"); if (el) el.value = ntx;
+          save(); U.toast("已保存到招标文件原文");
+        }
+      });
     });
     onAll("input[name=mode]", "change", function (e) { p.mode = e.target.value; save(); renderPlan(); });
     if (p.basics) {
@@ -841,11 +920,20 @@
       var h = "<div class='list'>";
       list.forEach(function (d) {
         var info = (d.meta && d.meta.info) ? esc(d.meta.info) : "";
-        h += "<div class='item'><div style='font-size:13px'><b>" + esc(d.title) + "</b><div class='muted' style='font-size:11px'>" + (info ? info + " · " : "") + esc(d.text.slice(0, 40)) + (d.text.length > 40 ? "…" : "") + "</div></div><button class='btn-danger btn-sm kb-del' data-id='" + d.id + "'>删</button></div>";
+        h += "<div class='item'><div style='font-size:13px'><b>" + esc(d.title) + "</b><div class='muted' style='font-size:11px'>" + (info ? info + " · " : "") + esc(d.text.slice(0, 40)) + (d.text.length > 40 ? "…" : "") + "</div></div>" +
+          "<div class='item-actions'><button class='btn-ghost btn-sm kb-view' data-id='" + d.id + "'>预览/编辑</button><button class='btn-ghost btn-sm kb-print' data-id='" + d.id + "'>打印</button><button class='btn-danger btn-sm kb-del' data-id='" + d.id + "'>删</button></div></div>";
       });
       h += "</div>"; if (!list.length) h = "<div class='empty'>暂无文档</div>";
       document.getElementById("kb-list").innerHTML = h;
       onAll(".kb-del", "click", function (e) { m.knowledge = m.knowledge.filter(function (x) { return x.id !== e.target.getAttribute("data-id"); }); save(); renderKB(); });
+      onAll(".kb-view", "click", function (e) {
+        var d = m.knowledge.filter(function (x) { return x.id === e.target.getAttribute("data-id"); })[0]; if (!d) return;
+        openAttachmentViewer({ kind: "doc", title: d.title, text: d.text, meta: d.meta, onSave: function (nt, ntx) { d.title = nt; d.text = ntx; save(); renderKB(); } });
+      });
+      onAll(".kb-print", "click", function (e) {
+        var d = m.knowledge.filter(function (x) { return x.id === e.target.getAttribute("data-id"); })[0]; if (!d) return;
+        printAttachment({ kind: "doc", title: d.title, text: d.text, meta: d.meta });
+      });
     }
     renderKB();
     on("#kb-file", "change", function (e) {
@@ -958,10 +1046,18 @@
         h += "<img src='" + im.src + "'/>";
         h += "<input class='img-desc-edit' value='" + esc(im.desc || im.name) + "' data-id='" + im.id + "' style='width:100%;font-size:12px;margin-top:4px' placeholder='图片描述（可修改）'/>";
         if (im.tags && im.tags.length) h += "<div class='img-tags'>" + im.tags.map(function (t) { return "<span class='img-tag'>" + esc(t) + "</span>"; }).join("") + "</div>";
-        h += "<button class='btn-danger btn-sm img-del' data-id='" + im.id + "' style='margin-top:6px'>删除</button></div>";
+        h += "<div class='img-actions'><button class='btn-ghost btn-sm img-view' data-id='" + im.id + "'>预览</button><button class='btn-ghost btn-sm img-print' data-id='" + im.id + "'>打印</button><button class='btn-danger btn-sm img-del' data-id='" + im.id + "'>删除</button></div></div>";
       });
       box.innerHTML = h || "<span class='muted'>暂无图片</span>";
       onAll(".img-del", "click", function (e) { m.images = m.images.filter(function (x) { return x.id !== e.target.getAttribute("data-id"); }); save(); renderImgs(); });
+      onAll(".img-view", "click", function (e) {
+        var im = m.images.filter(function (x) { return x.id === e.target.getAttribute("data-id"); })[0]; if (!im) return;
+        openAttachmentViewer({ kind: "image", title: im.name, text: im.desc, src: im.src, meta: { name: im.name }, onSave: function (nt, nd) { im.name = nt; im.desc = nd; save(); renderImgs(); } });
+      });
+      onAll(".img-print", "click", function (e) {
+        var im = m.images.filter(function (x) { return x.id === e.target.getAttribute("data-id"); })[0]; if (!im) return;
+        printAttachment({ kind: "image", title: im.name, text: im.desc, src: im.src, meta: { name: im.name } });
+      });
       onAll(".img-desc-edit", "input", function (e) {
         var id = e.target.getAttribute("data-id");
         var im = m.images.filter(function (x) { return x.id === id; })[0];
@@ -1080,6 +1176,10 @@
     confirm: confirmModal,
     // 暴露给全站调用与自测：文件名智能识别 + 批量组装
     analyzeFileName: analyzeFileName,
-    buildKBEntries: buildKBEntries
+    buildKBEntries: buildKBEntries,
+    // 暴露给全站调用与自测：附件预览 / 打印 / 自动识别再编辑
+    openAttachmentViewer: openAttachmentViewer,
+    printAttachment: printAttachment,
+    attachmentPrintHTML: attachmentPrintHTML
   };
 })();
