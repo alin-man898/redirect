@@ -56,6 +56,79 @@
     return Promise.reject({ noExtract: true, message: "." + ext + " 格式暂不支持自动提取正文：请另存为 PDF（可全文自动提取）或 .docx，也可直接粘贴正文" });
   }
 
+  // ---------- 文件名智能识别：解析标题/类型/日期/编号/附件信息 ----------
+  // 用于全站附件上传：一次性多选后，自动按文件名识别命名、补全标题与附件信息。
+  // 纯启发式，不依赖 AI，未配置大模型也能用。
+  var DOC_TYPE_WORDS = [
+    "招标公告", "中标通知书", "中标", "招标文件", "投标文件", "投标", "合同", "框架协议", "协议",
+    "资质证书", "资质", "资格", "证书", "体系认证", "认证", "检测报告", "检测", "检验报告", "质检",
+    "图纸", "图册", "图集", "总图", "平面图", "使用说明书", "操作手册", "技术手册",
+    "技术规范", "技术规格", "技术要求", "技术方案", "报价单", "报价清单", "报价", "清单", "预算",
+    "业绩证明", "业绩", "授权书", "授权", "代理", "代理商", "承诺函", "承诺", "偏离表", "偏离",
+    "响应文件", "响应", "标准", "规范", "澄清", "答疑纪要", "答疑", "补充", "附件",
+    "产品样本", "样本", "样册", "公司介绍", "介绍", "证明", "声明函", "声明", "意向书",
+    "投标保函", "履约保函", "保函", "正本", "副本"
+  ];
+  function analyzeFileName(rawName) {
+    var name = (rawName || "").replace(/\.[^.]+$/, ""); // 去扩展名
+    var info = { title: "", type: "", date: "", code: "", info: "" };
+    // 1) 日期：2026-03-04 / 2026_03_04 / 20260304 / 2026.3.4
+    var dM = name.match(/(20\d{2}|19\d{2})(?:[-_.]?(\d{1,2})(?:[-_.]?(\d{1,2}))?)?/);
+    if (dM) {
+      if (dM[2] && dM[3]) {
+        var mo = dM[2], da = dM[3];
+        info.date = dM[1] + "-" + (mo.length === 1 ? "0" + mo : mo) + "-" + (da.length === 1 ? "0" + da : da);
+      } else {
+        info.date = dM[1];
+      }
+    }
+    var dateDigits = dM ? dM[0].replace(/\D/g, "") : "";
+    var dateParts = dM ? [dM[1], dM[2], dM[3]].filter(Boolean).map(String) : [];
+    var exclude = {}; exclude[dateDigits] = 1; dateParts.forEach(function (pp) { exclude[pp] = 1; });
+    // 2) 编号：取较长数字串（排除日期数字串及其年/月/日成分，避免年份被误判为编号）
+    var nums = name.match(/\d{3,}/g) || [];
+    for (var i = 0; i < nums.length; i++) {
+      if (!exclude[nums[i]]) { info.code = nums[i]; break; }
+    }
+    // 3) 类型词（按长度降序，优先匹配更长更具体的词，避免“方案”误伤）
+    var sorted = DOC_TYPE_WORDS.slice().sort(function (a, b) { return b.length - a.length; });
+    var tw = "";
+    for (var j = 0; j < sorted.length; j++) {
+      if (name.indexOf(sorted[j]) >= 0) { tw = sorted[j]; break; }
+    }
+    info.type = tw;
+    // 4) 标题：剔除日期串、类型词、长数字串、分隔符后的剩余
+    var t = name;
+    if (dM) t = t.split(dM[0]).join(" ");
+    if (tw) t = t.split(tw).join(" ");
+    // 保留“字母+数字”型号/标准号（如 ISO9001、GB4000），仅剔除孤立长数字串（编号）
+    var prot = [];
+    t = t.replace(/[A-Za-z]+\d{2,}/g, function (m) { prot.push(m); return " P" + (prot.length - 1) + " "; });
+    t = t.replace(/\d{3,}/g, " ");
+    t = t.replace(/ P(\d+) /g, function (_, i) { return prot[+i]; });
+    t = t.replace(/[_\-—–·\s]+/g, " ").replace(/[〔〕\[\]（）()、，。：:；;]/g, " ").trim();
+    info.title = t || (rawName ? rawName.replace(/\.[^.]+$/, "") : "未命名文档");
+    // 5) 附件信息串
+    var parts = [];
+    if (info.type) parts.push("类型：" + info.type);
+    if (info.date) parts.push("日期：" + info.date);
+    if (info.code) parts.push("编号：" + info.code);
+    info.info = parts.join(" ｜ ");
+    return info;
+  }
+  // 由“文件名 + 已提取正文”批量组装知识库条目（标题/附件信息自动识别）
+  function buildKBEntries(metas) {
+    return (metas || []).map(function (it) {
+      var a = analyzeFileName(it.name);
+      return {
+        id: U.uid(),
+        title: a.title,
+        text: it.text || "",
+        meta: { name: it.name, type: a.type, date: a.date, code: a.code, info: a.info, size: it.size || 0 }
+      };
+    });
+  }
+
   // ---------- 通用弹窗（替代原生 prompt/confirm，兼容预览环境） ----------
   function modal(opts) {
     opts = opts || {};
@@ -261,7 +334,7 @@
     html += "<label>项目名称</label><input id='f-name' value='" + esc(p.name) + "'/>";
     html += "<label>招标文件原文（粘贴，或上传 .pdf / .txt / .md）</label>";
     html += "<textarea id='f-raw' rows='7' placeholder='将招标文件全文粘贴此处，或上传 PDF 由本地 pdf.js 真实解析，用于智能提取招标方、项目、预算、资质、标准、评分办法…'>" + esc(p.rawText) + "</textarea>";
-    html += "<div class='toolbar'><input type='file' id='f-file' accept='" + ACCEPT_DOCS + "' style='width:auto'/><button class='btn-ghost btn-sm' id='b-extract'>智能提取基础信息</button><span class='muted' id='extract-tip' style='font-size:12px'></span></div>";
+    html += "<div class='toolbar'><input type='file' id='f-file' multiple accept='" + ACCEPT_DOCS + "' style='width:auto'/><button class='btn-ghost btn-sm' id='b-extract'>智能提取基础信息</button><span class='muted' id='extract-tip' style='font-size:12px'></span></div>";
 
     html += "<label>撰写模式</label><div class='row wrap'>";
     [["quick", "快速编写"], ["score", "快捷评分"], ["custom", "定制评分"]].forEach(function (m) {
@@ -334,14 +407,26 @@
     on("#f-name", "input", function (e) { p.name = e.target.value; save(); });
     on("#f-raw", "input", function (e) { p.rawText = e.target.value; save(); });
     on("#f-file", "change", function (e) {
-      var f = e.target.files[0]; if (!f) return;
+      var files = e.target.files; if (!files || !files.length) return;
       e.target.value = ""; // 允许重复选择同一文件
-      extractDocText(f).then(function (res) {
-        p.rawText = res.text;
-        var rawEl = document.getElementById("f-raw"); if (rawEl) rawEl.value = res.text;
-        save(); U.toast(res.msg);
-      }).catch(function (err) {
-        U.toast(err && err.noExtract ? err.message : ("提取失败：" + (err && err.message ? err.message : "未知错误")));
+      var arr = Array.prototype.slice.call(files), done = 0, parts = [], names = [];
+      function finalize() {
+        if (done !== arr.length) return;
+        var merged = parts.join("\n\n");
+        if (merged.trim()) { p.rawText = (p.rawText && p.rawText.trim() ? p.rawText.trim() + "\n\n" : "") + merged; }
+        var rawEl = document.getElementById("f-raw"); if (rawEl) rawEl.value = p.rawText || "";
+        save();
+        document.getElementById("extract-tip").textContent = "已载入 " + arr.length + " 个文件：" + names.join("、") + "（已自动提取正文，可继续编辑）";
+      }
+      arr.forEach(function (f) {
+        names.push(f.name);
+        extractDocText(f).then(function (res) {
+          parts.push("【" + f.name + "】\n" + res.text);
+          done++; finalize();
+        }).catch(function (err) {
+          parts.push("【" + f.name + "】\n（" + (err && err.noExtract ? err.message : "提取失败") + "）");
+          done++; finalize();
+        });
       });
     });
     on("#b-extract", "click", function () {
@@ -705,16 +790,39 @@
   function renderLib() {
     setView("企业素材");
     var m = S.get().materials;
+    var pendingKBFile = null; // 记录“单文件自动识别后待用户确认添加”的文件引用
+    var IMG_EXT = ["jpg", "jpeg", "png", "gif", "bmp", "webp", "svg", "mp4", "mov", "avi", "mkv", "mp3", "wav", "m4a"];
+    function metaOf(f, a) { return { name: f.name, type: a.type, date: a.date, code: a.code, info: a.info, size: f.size || 0 }; }
+    // 多选批量入库：文字类自动提取正文+自动命名+自动附件信息；图片/音视频提示去图库
+    function batchAddKB(files, cb) {
+      var arr = Array.prototype.slice.call(files);
+      var pending = arr.length, ok = 0, skipped = [];
+      if (!pending) { cb(0, 0); return; }
+      arr.forEach(function (f) {
+        var ext = (f.name.split(".").pop() || "").toLowerCase();
+        if (IMG_EXT.indexOf(ext) >= 0) { skipped.push(f.name); pending--; if (!pending) cb(ok, skipped.length); return; }
+        extractDocText(f).then(function (res) {
+          var a = analyzeFileName(f.name);
+          m.knowledge.push({ id: U.uid(), title: a.title, text: res.text, meta: metaOf(f, a) });
+        }).catch(function () {
+          var a = analyzeFileName(f.name);
+          m.knowledge.push({ id: U.uid(), title: a.title, text: "", meta: metaOf(f, a) });
+        }).then(function () {
+          ok++; pending--; if (!pending) { save(); cb(ok, skipped.length); }
+        });
+      });
+    }
     var html = "<div class='grid grid-3'>";
     // 知识库
     html += "<div class='card'><div class='section-title'>知识库（RAG 私有素材）</div><div class='section-sub'>上传高质量资料，方案生成时智能检索引用</div>";
-    html += "<div class='row'><input id='kb-title' placeholder='文档标题'/><input id='kb-file' type='file' accept='" + ACCEPT_DOCS + "' style='width:auto'/></div>";
-    html += "<textarea id='kb-text' rows='4' placeholder='或在此粘贴文档正文'></textarea>";
+    html += "<div class='row'><input id='kb-title' placeholder='文档标题（选文件后自动识别命名，可修改）'/><input id='kb-file' type='file' multiple accept='" + ACCEPT_DOCS + "' style='width:auto'/></div>";
+    html += "<textarea id='kb-text' rows='4' placeholder='粘贴正文，或选文件自动提取（均可修改）'></textarea>";
+    html += "<div class='muted' id='kb-auto' style='font-size:12px;min-height:16px'></div>";
     html += "<div class='toolbar'><button class='btn-primary btn-sm' id='b-kb-add'>添加到知识库</button><input id='kb-search' placeholder='检索' style='max-width:140px'/><button class='btn-ghost btn-sm' id='b-kb-search'>检索</button></div>";
     html += "<div id='kb-list'></div></div>";
     // 私人图库
     html += "<div class='card'><div class='section-title'>私人图库（视觉理解）</div><div class='section-sub'>上传产品图/现场图；启用 AI 后可一键视觉理解，自动标注描述与标签</div>";
-    html += "<div class='toolbar'><input type='file' id='img-file' accept='image/*' style='width:auto'/><button class='btn-primary btn-sm' id='b-img-add'>上传</button><button class='btn-ghost btn-sm' id='b-img-vis'>AI 视觉理解（全部）</button><span class='muted' id='img-vis-tip' style='font-size:12px'></span></div>";
+    html += "<div class='toolbar'><input type='file' id='img-file' multiple accept='image/*' style='width:auto'/><button class='btn-primary btn-sm' id='b-img-add'>上传</button><button class='btn-ghost btn-sm' id='b-img-vis'>AI 视觉理解（全部）</button><span class='muted' id='img-vis-tip' style='font-size:12px'></span></div>";
     html += "<div class='img-grid' id='img-list'></div></div>";
     // 企业资料库
     html += "<div class='card'><div class='section-title'>企业资料库（商务标填空底座）</div>";
@@ -729,45 +837,92 @@
     function renderKB(list) {
       list = list || m.knowledge;
       var h = "<div class='list'>";
-      list.forEach(function (d) { h += "<div class='item'><div style='font-size:13px'><b>" + esc(d.title) + "</b><div class='muted' style='font-size:11px'>" + esc(d.text.slice(0, 40)) + (d.text.length > 40 ? "…" : "") + "</div></div><button class='btn-danger btn-sm kb-del' data-id='" + d.id + "'>删</button></div>"; });
+      list.forEach(function (d) {
+        var info = (d.meta && d.meta.info) ? esc(d.meta.info) : "";
+        h += "<div class='item'><div style='font-size:13px'><b>" + esc(d.title) + "</b><div class='muted' style='font-size:11px'>" + (info ? info + " · " : "") + esc(d.text.slice(0, 40)) + (d.text.length > 40 ? "…" : "") + "</div></div><button class='btn-danger btn-sm kb-del' data-id='" + d.id + "'>删</button></div>";
+      });
       h += "</div>"; if (!list.length) h = "<div class='empty'>暂无文档</div>";
       document.getElementById("kb-list").innerHTML = h;
       onAll(".kb-del", "click", function (e) { m.knowledge = m.knowledge.filter(function (x) { return x.id !== e.target.getAttribute("data-id"); }); save(); renderKB(); });
     }
     renderKB();
+    on("#kb-file", "change", function (e) {
+      var files = e.target.files;
+      if (!files || !files.length) return;
+      if (files.length > 1) {
+        batchAddKB(files, function (n, sk) {
+          renderKB();
+          U.toast("已批量添加 " + n + " 个文档（标题/附件信息已自动识别）" + (sk ? "；" + sk + " 个图片/音视频已跳过（请到私人图库）" : ""));
+          document.getElementById("kb-file").value = "";
+          document.getElementById("kb-auto").textContent = "";
+        });
+        return;
+      }
+      // 单文件：自动识别命名+正文填入文本框，供用户修改后点添加
+      var f = files[0]; pendingKBFile = f;
+      var a = analyzeFileName(f.name);
+      var titleEl = document.getElementById("kb-title"), textEl = document.getElementById("kb-text");
+      if (!titleEl.value.trim()) titleEl.value = a.title;
+      var tip = document.getElementById("kb-auto");
+      extractDocText(f).then(function (res) {
+        if (!textEl.value.trim()) textEl.value = res.text;
+        tip.textContent = "已自动识别：" + (a.info || a.title) + "（可修改后点「添加到知识库」）";
+      }).catch(function (err) {
+        tip.textContent = "已自动识别标题：" + a.title + (err && err.noExtract ? "；该格式暂不能自动提取正文，请粘贴正文" : "") + "（可修改后点「添加到知识库」）";
+      });
+    });
     on("#b-kb-add", "click", function () {
       var title = document.getElementById("kb-title").value.trim();
       var text = document.getElementById("kb-text").value.trim();
       var f = document.getElementById("kb-file").files[0];
-      function done(t, extraMsg) {
-        m.knowledge.push({ id: U.uid(), title: title || (f ? f.name : ""), text: t });
+      function done(t, meta, extraMsg) {
+        m.knowledge.push({ id: U.uid(), title: title || (f ? f.name : "未命名文档"), text: t, meta: meta || null });
         save(); renderKB();
         document.getElementById("kb-title").value = "";
         document.getElementById("kb-text").value = "";
         document.getElementById("kb-file").value = "";
+        document.getElementById("kb-auto").textContent = "";
+        pendingKBFile = null;
         U.toast("已添加" + (extraMsg ? "（" + extraMsg + "）" : ""));
       }
-      if (f) {
-        extractDocText(f).then(function (res) {
-          if (!res.text || !res.text.trim()) { U.toast("文件中未提取到文字，请检查文件内容或改用粘贴正文"); return; }
-          done(res.text, res.msg);
-        }).catch(function (err) {
-          U.toast(err && err.noExtract ? err.message : ("提取失败：" + (err && err.message ? err.message : "未知错误")));
-        });
+      if (f && pendingKBFile === f) {
+        var a = analyzeFileName(f.name);
+        if (!text) {
+          extractDocText(f).then(function (res) { done(res.text, metaOf(f, a), res.msg); })
+            .catch(function (err) { U.toast(err && err.noExtract ? err.message : ("提取失败：" + (err && err.message ? err.message : "未知错误"))); });
+          return;
+        }
+        done(text, metaOf(f, a));
         return;
       }
-      if (!title || !text) { U.toast("请填写标题与正文或上传文件"); return; }
-      done(text);
+      if (!title || !text) { U.toast("请填写标题与正文，或选择文件自动识别"); return; }
+      done(text, null);
     });
     on("#b-kb-search", "click", function () { var q = document.getElementById("kb-search").value.trim(); if (!q) return renderKB(); renderKB(m.knowledge.filter(function (d) { return (d.title + d.text).indexOf(q) >= 0; })); });
     on("#b-img-add", "click", function () {
-      var f = document.getElementById("img-file").files[0]; if (!f) return;
-      if (f.size > 1.5 * 1024 * 1024) { U.toast("图片过大（>1.5MB），本地存储受限，已跳过"); return; }
-      var r = new FileReader(); r.onload = function () {
-        var im = { id: U.uid(), src: r.result, name: f.name, desc: "", tags: [] };
-        m.images.push(im); save(); renderImgs(); U.toast("已上传");
-        if (SYD.ai.readyVision()) { visionOne(im).then(renderImgs); }
-      }; r.readAsDataURL(f);
+      var files = document.getElementById("img-file").files;
+      if (!files || !files.length) return;
+      var arr = Array.prototype.slice.call(files), done = 0, ok = 0;
+      function finalize() {
+        if (done === arr.length) {
+          renderImgs();
+          U.toast("已上传 " + ok + " 张（文件名已自动识别为描述，可手动修改）");
+          document.getElementById("img-file").value = "";
+        }
+      }
+      arr.forEach(function (f) {
+        if (f.size > 1.5 * 1024 * 1024) { U.toast("图片过大（>1.5MB）已跳过：" + f.name); done++; finalize(); return; }
+        var r = new FileReader();
+        r.onload = function () {
+          var a = analyzeFileName(f.name);
+          var im = { id: U.uid(), src: r.result, name: f.name, desc: a.title, tags: [] };
+          m.images.push(im); save();
+          if (SYD.ai.readyVision()) visionOne(im);
+          ok++; done++; finalize();
+        };
+        r.onerror = function () { done++; finalize(); };
+        r.readAsDataURL(f);
+      });
     });
     async function visionOne(im) {
       try {
@@ -794,12 +949,17 @@
         h += "<div class='img-tile' data-id='" + im.id + "'>";
         if (im.desc) h += "<span class='vis-badge'>已理解</span>";
         h += "<img src='" + im.src + "'/>";
-        h += "<div class='img-desc'>" + (im.desc ? esc(im.desc) : esc(im.name)) + "</div>";
+        h += "<input class='img-desc-edit' value='" + esc(im.desc || im.name) + "' data-id='" + im.id + "' style='width:100%;font-size:12px;margin-top:4px' placeholder='图片描述（可修改）'/>";
         if (im.tags && im.tags.length) h += "<div class='img-tags'>" + im.tags.map(function (t) { return "<span class='img-tag'>" + esc(t) + "</span>"; }).join("") + "</div>";
         h += "<button class='btn-danger btn-sm img-del' data-id='" + im.id + "' style='margin-top:6px'>删除</button></div>";
       });
       box.innerHTML = h || "<span class='muted'>暂无图片</span>";
       onAll(".img-del", "click", function (e) { m.images = m.images.filter(function (x) { return x.id !== e.target.getAttribute("data-id"); }); save(); renderImgs(); });
+      onAll(".img-desc-edit", "input", function (e) {
+        var id = e.target.getAttribute("data-id");
+        var im = m.images.filter(function (x) { return x.id === id; })[0];
+        if (im) { im.desc = e.target.value; save(); }
+      });
     }
     renderImgs();
     on("#b-co-save", "click", function () {
@@ -910,6 +1070,9 @@
     render: function (name) { (map[name] || map.dashboard)(); updateAIStatus(); },
     setProject: function (id) { cur.pid = id; },
     modal: modal,
-    confirm: confirmModal
+    confirm: confirmModal,
+    // 暴露给全站调用与自测：文件名智能识别 + 批量组装
+    analyzeFileName: analyzeFileName,
+    buildKBEntries: buildKBEntries
   };
 })();
