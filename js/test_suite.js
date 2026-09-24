@@ -235,6 +235,38 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   ok(ents[0].title.indexOf('焦炭反应性测定装置') >= 0 && ents[0].meta.type === '投标文件' && ents[0].meta.date === '2026-03-04', '首条标题/类型/日期自动识别正确');
   ok(ents[1].meta.type === '体系认证' && ents[1].text === '正文B', '次条类型与正文正确');
 
+  // 21. 附件查看器：打印 HTML / 预览填充 / 再编辑回写（全站通用）
+  const ph = SYD.ui.attachmentPrintHTML({ kind: 'doc', title: '测试文档', text: '正文内容一二三', meta: { type: '合同', date: '2026', code: '088', name: '合同.pdf' } });
+  ok(ph.indexOf('<h2>测试文档</h2>') >= 0, '打印HTML含标题');
+  ok(ph.indexOf('正文内容一二三') >= 0, '打印HTML含正文');
+  ok(ph.indexOf('类型：合同') >= 0 && ph.indexOf('日期：2026') >= 0, '打印HTML含自动识别附件信息');
+  const phImg = SYD.ui.attachmentPrintHTML({ kind: 'image', title: '现场图', text: '设备外观', src: 'data:image/png;base64,xx', meta: { name: '现场图.png' } });
+  ok(phImg.indexOf("<img src='data:image/png;base64,xx'") >= 0, '图片打印HTML含<img>与src');
+
+  // 预览填充 + 再编辑回写
+  let saved = null;
+  SYD.ui.openAttachmentViewer({ kind: 'doc', title: '原标题', text: '原正文', meta: { type: '合同', date: '2026' }, onSave: (nt, ntx) => { saved = { nt: nt, ntx: ntx }; } });
+  ok(doc.getElementById('att-overlay') && doc.getElementById('att-overlay').classList.contains('show'), '预览查看器已打开');
+  ok(doc.getElementById('att-title').value === '原标题', '预览标题自动填充为识别标题');
+  ok(doc.getElementById('att-text').value === '原正文', '预览正文自动填充');
+  doc.getElementById('att-title').value = '改后标题';
+  doc.getElementById('att-text').value = '改后正文';
+  doc.getElementById('att-save').click();
+  ok(saved && saved.nt === '改后标题' && saved.ntx === '改后正文', '点保存并关闭回调回写(再编辑生效)');
+  ok(!doc.getElementById('att-overlay').classList.contains('show'), '保存后查看器已关闭');
+
+  // 22. 三模块均已接入预览/打印按钮
+  // 知识库
+  SYD.ui.render('lib');
+  ok(view.innerHTML.includes('kb-view') && view.innerHTML.includes('kb-print'), '知识库文档含“预览/编辑”“打印”按钮');
+  // 图库（注入一张图后渲染）
+  SYD.store.get().materials.images.push({ id: 'i9', src: 'data:image/png;base64,xx', name: '装置外观图.png', desc: '灰色机柜', tags: [] });
+  SYD.ui.render('lib');
+  ok(view.innerHTML.includes('img-view') && view.innerHTML.includes('img-print'), '私人图库图片含“预览”“打印”按钮');
+  // 方案招标文件原文预览/打印
+  SYD.ui.render('plan');
+  ok(view.innerHTML.includes('b-fraw-view'), '智能方案含“预览/打印”招标文件原文按钮');
+
   console.log('\n结果：' + (fails === 0 ? '全部通过 ✅' : (fails + ' 项失败 ❌')));
   process.exit(fails === 0 ? 0 : 1);
 })().catch(e => { console.error('运行异常：', e); process.exit(2); });
