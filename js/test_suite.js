@@ -337,6 +337,37 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   const plr = SYD.ui.buildPickList(SYD.store.get().materials.knowledge);
   ok(plr.count === 2 && /ISO9001/.test(plr.text) && /体系认证/.test(plr.text), 'buildPickList 正确分组');
 
+  // 28. 场景化标书模板库（对标：资质即取即用 / 场景化装配）
+  ok(Array.isArray(SYD.ui.BID_TEMPLATES) && SYD.ui.BID_TEMPLATES.length >= 4, '模板库含≥4个模板');
+  ok(SYD.ui.recommendTemplate('焦炭反应性测定装置CRI').id === 'cri', '智能推荐命中焦炭反应性模板');
+  ok(SYD.ui.recommendTemplate('40kg试验焦炉').id === 'cokeoven', '智能推荐命中小焦炉模板');
+  ok(SYD.ui.recommendTemplate('智能制样系统').id === 'prep', '智能推荐命中制样系统模板');
+  ok(SYD.ui.recommendTemplate('不相关的办公用品采购').id === 'generic', '无命中回退通用模板');
+  const kb = [
+    { id: 'k1', title: 'ISO9001体系认证证书', meta: { type: '体系认证', info: 'ISO9001' }, locked: true },
+    { id: 'k2', title: '产品检测报告', meta: { type: '检测报告', info: '检测' }, locked: true },
+    { id: 'k3', title: '某钢厂供货业绩合同', meta: { type: '业绩', info: '业绩 合同' }, locked: false }
+  ];
+  const tpl = SYD.ui.BID_TEMPLATES.filter(t => t.id === 'cri')[0];
+  const asm = SYD.ui.assembleBid(tpl, { proj: '某钢厂CRI项目', bidno: 'GX-9', buyer: '某钢厂' }, kb);
+  ok(/第.章 投标函/.test(asm.skeleton), '装配含章节骨架(投标函)');
+  ok(/第.章 法定代表人授权委托书/.test(asm.skeleton), '装配含授权书章节');
+  ok(asm.matchedCount >= 3, '评分项装配匹配到≥3项资质(' + asm.matchedCount + ')');
+  ok(asm.text.indexOf('某钢厂') >= 0 && asm.text.indexOf('GX-9') >= 0, '装配头部含招标信息');
+  ok(asm.text.indexOf('ISO9001') >= 0 && asm.text.indexOf('供货业绩') >= 0, '装配含匹配到的资质条目');
+  SYD.ui.render('tmpl');
+  ok(view.innerHTML.includes('场景化标书模板库'), '标书模板视图渲染');
+  ok(view.querySelector('.tmpl-item') !== null, '模板列表有可点击项');
+  view.querySelector(".tmpl-item[data-id='cri']").click();
+  ok(doc.getElementById('tm-gen').disabled === false, '选模板后生成按钮可用');
+  doc.getElementById('tm-proj').value = '焦炭反应性测定装置';
+  doc.getElementById('tm-bidno').value = 'GX-9';
+  doc.getElementById('tm-buyer').value = '某钢厂';
+  doc.getElementById('tm-gen').click();
+  ok(view.innerHTML.includes('标书章节骨架'), '生成后预览含装配');
+  ok(doc.getElementById('tm-print').disabled === false && doc.getElementById('tm-doc').disabled === false, '生成后打印/Word可用');
+  ok(view.innerHTML.includes('投标授权'), '装配提示关联投标授权模块');
+
   console.log('\n结果：' + (fails === 0 ? '全部通过 ✅' : (fails + ' 项失败 ❌')));
   process.exit(fails === 0 ? 0 : 1);
 })().catch(e => { console.error('运行异常：', e); process.exit(2); });
