@@ -80,6 +80,78 @@
 
   global.SYD = global.SYD || {};
   global.SYD.pdf = { available: available, initWorker: initWorker, parseFile: parseFile, parseBuffer: parseBuffer };
+
+  // ---------- DOCX(.docx) 正文提取：解析 ZIP 容器 → 抽取 word/document.xml → 还原纯文本 ----------
+  // 纯前端离线实现：依靠浏览器原生 DecompressionStream 解 deflate（Edge/Chrome 103+ 均支持）
+  var docx = (function () {
+    function u16(v, o) { return v.getUint16(o, true); }
+    function u32(v, o) { return v.getUint32(o, true); }
+    function bytesToText(u8) {
+      try { return new TextDecoder("utf-8").decode(u8); }
+      catch (e) { var s = ""; for (var i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]); return decodeURIComponent(escape(s)); }
+    }
+    // 从文件尾部向前找 ZIP 结束记录(EOCD)
+    function findEOCD(u8, dv) {
+      var lo = Math.max(0, u8.length - 22 - 65535);
+      for (var i = u8.length - 22; i >= lo; i--) { if (u32(dv, i) === 0x06054b50) return i; }
+      return -1;
+    }
+    // 原生解压 raw deflate
+    function inflateRaw(u8) {
+      if (typeof DecompressionStream === "undefined") return Promise.reject(new Error("浏览器版本过低，不支持自动解压"));
+      try {
+        var stream = new Blob([u8]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+        return new Response(stream).arrayBuffer().then(function (ab) { return new Uint8Array(ab); });
+      } catch (e) { return Promise.reject(e); }
+    }
+    // document.xml → 纯文本（段落换行、制表还原、实体解码）
+    function xmlToText(xml) {
+      var s = xml;
+      s = s.replace(/<w:tab[^>]*\/?>/g, "\t").replace(/<w:br[^>]*\/?>/g, "\n").replace(/<\/w:p>/g, "\n");
+      s = s.replace(/<[^>]+>/g, "");
+      s = s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&apos;/g, "'");
+      s = s.replace(/&amp;/g, "&");
+      s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+      return s;
+    }
+    // 从 ArrayBuffer(docx 文件内容) 提取正文文本
+    function extractText(buf) {
+      try {
+        var u8 = new Uint8Array(buf), dv = new DataView(buf);
+        var eocd = findEOCD(u8, dv);
+        if (eocd < 0) return Promise.reject(new Error("不是有效的 .docx 文件"));
+        var count = u16(dv, eocd + 10), cdOff = u32(dv, eocd + 16), i = cdOff, target = null;
+        for (var n = 0; n < count; n++) {
+          if (i + 46 > u8.length || u32(dv, i) !== 0x02014b50) break;
+          var method = u16(dv, i + 10), csize = u32(dv, i + 20);
+          var nameLen = u16(dv, i + 28), extraLen = u16(dv, i + 30), commLen = u16(dv, i + 32), lho = u32(dv, i + 42);
+          var name = bytesToText(u8.subarray(i + 46, i + 46 + nameLen));
+          if (name === "word/document.xml") {
+            // 定位需用 local header 自身的文件名/扩展字段长度
+            var lnLen = u16(dv, lho + 26), leLen = u16(dv, lho + 28);
+            var start = lho + 30 + lnLen + leLen;
+            target = { method: method, data: u8.subarray(start, start + csize) };
+            break;
+          }
+          i += 46 + nameLen + extraLen + commLen;
+        }
+        if (!target) return Promise.reject(new Error("docx 中未找到正文部件(word/document.xml)"));
+        var p = target.method === 8 ? inflateRaw(target.data) : Promise.resolve(target.data);
+        return p.then(function (raw) { return xmlToText(bytesToText(raw)); });
+      } catch (e) { return Promise.reject(e); }
+    }
+    function extractFile(file) {
+      return new Promise(function (res, rej) {
+        var r = new FileReader();
+        r.onload = function () { extractText(r.result).then(res, rej); };
+        r.onerror = function () { rej(new Error("文件读取失败")); };
+        r.readAsArrayBuffer(file);
+      });
+    }
+    return { extractText: extractText, extractFile: extractFile };
+  })();
+  global.SYD.docx = docx;
+
   // 启动时尝试初始化 worker（file:// 下若失败不影响后续 UI）
   try { initWorker(); } catch (e) {}
 })(window);
