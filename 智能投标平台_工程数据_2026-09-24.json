@@ -1,0 +1,25 @@
+{
+  "_app": "智能投标工作平台",
+  "_ver": 1,
+  "_exported": "2026-09-24",
+  "data": {
+    "projects": [],
+    "materials": {
+      "knowledge": [],
+      "images": [],
+      "company": null
+    },
+    "ai": {
+      "baseUrl": "https://api.openai.com/v1",
+      "key": "",
+      "model": "gpt-4o-mini",
+      "visionModel": "gpt-4o-mini",
+      "enabled": false
+    },
+    "qcTemplates": [],
+    "settings": {
+      "theme": "dark",
+      "defaultDarkLabel": false
+    }
+  }
+}
