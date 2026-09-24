@@ -302,6 +302,41 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   ok(!!doc.getElementById('att-save'), '可编辑模式含“保存并关闭”按钮');
   doc.getElementById('att-close').click();
 
+  // 26. 投标授权书一键生成（对标：人员授权一键生成）
+  SYD.store.get().materials.company = { name: '鞍山星源达科技有限公司', credit: '91210300XXX', legal: '张三', addr: '辽宁鞍山', phone: '0412-xxx', bank: '工行鞍山', account: '1234', product: '焦炭反应性测定装置', lead: '60天', warranty: '2年' };
+  const letter = SYD.ui.generateAuthLetter({ company: SYD.store.get().materials.company, agent: '李四', id: '2103XXXXXXXXXXXX', proj: '某钢厂焦炭反应性测定装置投标', bidno: 'GX2026-001', buyer: '某钢厂', sd: '2026-01-01', ed: '2026-12-31' });
+  ok(/法定代表人授权委托书/.test(letter), '授权书含标题');
+  ok(/致：某钢厂/.test(letter), '授权书含招标人');
+  ok(letter.indexOf('李四') >= 0, '授权书含被授权人');
+  ok(letter.indexOf('张三') >= 0, '授权书含法定代表人');
+  ok(letter.indexOf('鞍山星源达科技有限公司') >= 0, '授权书含投标人名称');
+  ok(letter.indexOf('GX2026-001') >= 0, '授权书含招标编号');
+  SYD.ui.render('authz');
+  ok(view.innerHTML.includes('投标人信息取自'), '投标授权视图渲染');
+  doc.getElementById('az-name').value = '李四';
+  doc.getElementById('az-proj').value = '某钢厂项目';
+  doc.getElementById('az-buyer').value = '某钢厂';
+  doc.getElementById('az-gen').click();
+  ok(view.innerHTML.includes('法定代表人授权委托书'), '生成后预览含授权书');
+  ok(SYD.store.get().materials.authz.length === 1, '授权记录已入库');
+  ok(doc.getElementById('az-print').disabled === false, '生成后打印按钮可用');
+
+  // 27. 标书取用包（资质即取即用）
+  SYD.store.get().materials.knowledge = [];
+  SYD.store.get().materials.knowledge.push({ id: 'p1', title: 'ISO9001证书', text: '', meta: { type: '体系认证', info: '类型：体系认证' }, locked: true });
+  SYD.store.get().materials.knowledge.push({ id: 'p2', title: '营业执照', text: '', meta: { type: '其他', info: '' }, locked: false });
+  SYD.ui.render('lib');
+  ok(view.innerHTML.includes('标书取用包'), '企业素材含标书取用包卡片');
+  const cbLocked = view.querySelector(".pick-cb[data-id='p1']");
+  const cbOther = view.querySelector(".pick-cb[data-id='p2']");
+  ok(cbLocked && cbLocked.checked === true, '原件类默认勾选');
+  ok(cbOther && cbOther.checked === false, '非原件默认不勾选');
+  doc.getElementById('pick-gen').click();
+  ok(view.innerHTML.includes('标书取用包清单'), '生成取用包清单');
+  ok(view.innerHTML.includes('ISO9001'), '清单含已勾选原件');
+  const plr = SYD.ui.buildPickList(SYD.store.get().materials.knowledge);
+  ok(plr.count === 2 && /ISO9001/.test(plr.text) && /体系认证/.test(plr.text), 'buildPickList 正确分组');
+
   console.log('\n结果：' + (fails === 0 ? '全部通过 ✅' : (fails + ' 项失败 ❌')));
   process.exit(fails === 0 ? 0 : 1);
 })().catch(e => { console.error('运行异常：', e); process.exit(2); });
