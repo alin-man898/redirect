@@ -13,6 +13,7 @@
         company: null,         // 企业资料库(结构化)
         authz: []              // 投标授权书生成记录
       },
+      ledger: [],              // 业务台账：报价/合同/发货/收货/财务回款 单据链式流转
       ai: { baseUrl: "https://api.openai.com/v1", key: "", model: "gpt-4o-mini", visionModel: "gpt-4o-mini", enabled: false },
       qcTemplates: [],         // 自定义质检模板
       settings: { theme: "light", defaultDarkLabel: false }
@@ -29,6 +30,7 @@
       // 合并默认，防止缺字段
       var d = defaultState();
       s.projects = s.projects || d.projects;
+      s.ledger = s.ledger || d.ledger;
       s.materials = Object.assign(d.materials, s.materials || {});
       s.ai = Object.assign(d.ai, s.ai || {});
       s.qcTemplates = s.qcTemplates || d.qcTemplates;
@@ -148,6 +150,7 @@
     var d = defaultState(), s = obj.data;
     state = {
       projects: Array.isArray(s.projects) ? s.projects : d.projects,
+      ledger: Array.isArray(s.ledger) ? s.ledger : d.ledger,
       materials: Object.assign(d.materials, s.materials || {}),
       ai: Object.assign(d.ai, s.ai || {}),
       qcTemplates: Array.isArray(s.qcTemplates) ? s.qcTemplates : d.qcTemplates,
