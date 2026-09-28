@@ -1,8 +1,12 @@
 /* 自测：用 jsdom 加载平台并模拟交互 */
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { JSDOM } = require('jsdom');
 
 const ROOT = require('path').join(__dirname, '..').replace(/\\/g, '/') + '/';
+// 测试临时产物（docx/校验脚本）统一写到系统临时目录，避免污染 src/ 与发布包
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'sydtest-'));
 let html = fs.readFileSync(ROOT + 'index.html', 'utf8');
 html = html.replace(/<script[\s\S]*?<\/script>/g, ''); // 剔除原 script，改为手动 eval
 const dom = new JSDOM(html, { runScripts: 'dangerously', url: 'https://localhost/', pretendToBeVisual: true });
@@ -12,7 +16,7 @@ const doc = window.document;
 window.fetch = () => Promise.reject(new Error('offline'));
 
 // 加载脚本（按 index.html 顺序）
-['store', 'ai', 'pdfparse', 'word-export', 'ui', 'main'].forEach(n => window.eval(fs.readFileSync(ROOT + 'js/' + n + '.js', 'utf8')));
+['store', 'auth', 'ai', 'pdfparse', 'word-export', 'ui', 'main'].forEach(n => window.eval(fs.readFileSync(ROOT + 'js/' + n + '.js', 'utf8')));
 
 const SYD = window.SYD;
 const view = doc.getElementById('view');
@@ -139,9 +143,9 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   const blob = SYD.word.buildBidDocx(tp);
   ok(blob && blob.size > 1000, 'docx Blob 已生成(size=' + (blob && blob.size) + ')');
   const buf = Buffer.from(await blob.arrayBuffer());
-  const outPath = ROOT + 'js/_docx_test.docx';
+  const outPath = TMP + '/_docx_test.docx';
   fs.writeFileSync(outPath, buf);
-  fs.writeFileSync(ROOT + 'js/_validate_docx.py',
+  fs.writeFileSync(TMP + '/_validate_docx.py',
     "import zipfile, xml.dom.minidom as M, sys\n" +
     "z=zipfile.ZipFile(sys.argv[1])\n" +
     "bad=z.testzip()\n" +
@@ -150,7 +154,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     "[M.parseString(z.read(n)) for n in z.namelist() if n.endswith('.xml')]\n" +
     "print('XML_OK')\n");
   const py = 'C:/Users/Administrator/.workbuddy/binaries/python/versions/3.13.12/python.exe';
-  const out = require('child_process').execSync(py + ' "' + ROOT + 'js/_validate_docx.py" "' + outPath + '"').toString();
+  const out = require('child_process').execSync(py + ' "' + TMP + '/_validate_docx.py" "' + outPath + '"').toString();
   ok(/ZIP_OK/.test(out), 'docx zip 结构有效');
   ok(/PARTS=7/.test(out), 'docx 含7个部件');
   ok(/XML_OK/.test(out), 'docx 全部 XML 合规');
@@ -167,9 +171,9 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   const tp2 = SYD.store.get().projects.filter(x => x.name === '测试暗标项目')[0];
   tp2.darkLabel = true;
   const blob2 = SYD.word.buildBidDocx(tp2);
-  const out2 = ROOT + 'js/_docx_dark.docx';
+  const out2 = TMP + '/_docx_dark.docx';
   fs.writeFileSync(out2, Buffer.from(await blob2.arrayBuffer()));
-  const outD = require('child_process').execSync(py + ' "' + ROOT + 'js/_validate_docx.py" "' + out2 + '"').toString();
+  const outD = require('child_process').execSync(py + ' "' + TMP + '/_validate_docx.py" "' + out2 + '"').toString();
   ok(/ZIP_OK/.test(outD) && /XML_OK/.test(outD), '暗标 docx 结构有效');
   const darkCheck = require('child_process').execSync(py + ' -c "import zipfile,sys; d=zipfile.ZipFile(sys.argv[1]).read(\'word/document.xml\').decode(\'utf-8\'); print(\'DARK_OK\' if (\'暗标\' in d and \'鞍山星源达\' not in d) else \'DARK_FAIL\')" "' + out2 + '"', { encoding: 'utf8' });
   ok(/DARK_OK/.test(darkCheck), '暗标 docx 含“暗标”且匿名化投标人');
@@ -195,7 +199,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   ok(/\.pdf\b/.test(kbAcc) && /\.docx\b/.test(kbAcc) && /\.wps\b/.test(kbAcc) && /\.png\b/.test(kbAcc) && /\.doc\b/.test(kbAcc) && /\.mp3\b/.test(kbAcc), '知识库上传框已放开常用格式(accept)');
 
   // 17. docx 正文提取引擎（用测试12生成的真实样本 _docx_test.docx）
-  const raw = fs.readFileSync(ROOT + 'js/_docx_test.docx');
+  const raw = fs.readFileSync(TMP + '/_docx_test.docx');
   const ab = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
   let docxText = '';
   try { docxText = await SYD.docx.extractText(ab); } catch (e) { docxText = 'ERR:' + e.message; }
@@ -367,6 +371,63 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   ok(view.innerHTML.includes('标书章节骨架'), '生成后预览含装配');
   ok(doc.getElementById('tm-print').disabled === false && doc.getElementById('tm-doc').disabled === false, '生成后打印/Word可用');
   ok(view.innerHTML.includes('投标授权'), '装配提示关联投标授权模块');
+
+  // 29. 授权管理（到期自动失效 + 简易管理）
+  ok(typeof SYD.auth === 'object' && typeof SYD.auth.getCodes === 'function', 'SYD.auth API 已暴露');
+  ok(SYD.auth.isOwner() === false, '测试环境访客态 isOwner=false');
+  window.localStorage.setItem('sy_auth_generated', JSON.stringify([
+    { code: 'A.active.x', raw: 'A', exp: Date.now() + 86400000, label: '张某', created: Date.now() },
+    { code: 'B.expired.x', raw: 'B', exp: Date.now() - 1000, label: '过期码', created: Date.now() }
+  ]));
+  window.localStorage.setItem('sy_auth_revoked', JSON.stringify(['C']));
+  var codes = SYD.auth.getCodes();
+  ok(codes.length === 2, 'getCodes 返回已生成授权码(2)');
+  ok(codes.filter(function (c) { return c.raw === 'A'; })[0].status === 'active', '生效码状态=active');
+  ok(codes.filter(function (c) { return c.raw === 'B'; })[0].status === 'expired', '过期码状态=expired');
+  SYD.auth.extend('A', 7);
+  ok(SYD.auth.getCodes().filter(function (c) { return c.raw === 'A'; })[0].exp > Date.now() + 86400000, '续期后有效期延长');
+  SYD.auth.revoke('A');
+  ok(SYD.auth.getCodes().filter(function (c) { return c.raw === 'A'; }).length === 0, '作废后该码从列表移除');
+  ok(JSON.parse(window.localStorage.getItem('sy_auth_revoked')).indexOf('A') >= 0, '作废码进入 revoke 列表');
+  SYD.ui.render('authmgr');
+  ok(view.innerHTML.includes('授权管理'), '授权管理视图渲染');
+
+  // 30. 宣传资料对外一键调用
+  SYD.store.get().materials.knowledge = [];
+  SYD.store.get().materials.images = [];
+  SYD.store.get().materials.knowledge.push({ id: 'p1', title: '焦炭反应性技术方案', meta: { type: '技术方案', info: '技术方案' } });
+  SYD.store.get().materials.images.push({ id: 'i1', src: 'data:image/png;base64,xx', name: '装置外观图.png', desc: '灰色机柜', tags: [] });
+  SYD.ui.render('promo');
+  ok(view.innerHTML.includes('宣传资料对外一键调用'), '宣传调用视图渲染');
+  ok(view.innerHTML.includes('pr-cb'), '宣传调用含素材勾选框');
+  var catalog = SYD.ui.buildPromoCatalog([
+    { id: 'p1', name: '技术方案', type: '技术方案', note: '' },
+    { id: 'i1', name: '外观图', type: '图库图片', note: '' }
+  ], '某钢厂CRI项目');
+  ok(catalog.indexOf('某钢厂CRI项目') >= 0, '清单含关联项目名');
+  ok(catalog.indexOf('【技术方案】') >= 0 && catalog.indexOf('【图库图片】') >= 0, '清单按类型分组');
+  view.querySelector(".pr-cb[data-id='p1']").checked = true;
+  view.querySelector(".pr-cb[data-id='i1']").checked = true;
+  doc.getElementById('pr-gen').click();
+  ok(view.innerHTML.includes('对外取用清单'), '生成后显示对外取用清单');
+  ok(doc.getElementById('pr-result').textContent.indexOf('技术方案') >= 0, '清单含已勾选素材');
+
+  // 31. 业务台账（单据链式流转）
+  SYD.store.get().ledger = [];
+  SYD.store.get().ledger.push({ id: 'L1', projectName: '某钢厂项目', type: '合同', no: 'HT-1', date: '2026-01-01', party: '某钢厂', amount: 100, status: '已签', note: '' });
+  SYD.store.get().ledger.push({ id: 'L2', projectName: '某钢厂项目', type: '财务回款', no: 'HK-1', date: '2026-03-01', party: '某钢厂', amount: 60, status: '已回款', note: '' });
+  var sum = SYD.ui.computeLedgerSummary(SYD.store.get().ledger);
+  ok(sum.contractTotal === 100 && sum.paidTotal === 60 && sum.unpaidTotal === 40, '台账汇总 合同100/已回60/未回40');
+  SYD.ui.render('ledger');
+  ok(view.innerHTML.includes('业务台账'), '业务台账视图渲染');
+  ok(view.innerHTML.includes('某钢厂项目'), '台账含关联项目');
+  ok(view.innerHTML.includes('合同额合计'), '台账含汇总卡');
+  doc.getElementById('lg-add').click();
+  ok(doc.getElementById('lg-save') !== null, '新增单据弹出表单(含保存)');
+  doc.getElementById('lg-type').value = '报价单';
+  doc.getElementById('lg-amount').value = '80';
+  doc.getElementById('lg-save').click();
+  ok(SYD.store.get().ledger.length === 3, '保存后新增一条单据(3)');
 
   console.log('\n结果：' + (fails === 0 ? '全部通过 ✅' : (fails + ' 项失败 ❌')));
   process.exit(fails === 0 ? 0 : 1);
