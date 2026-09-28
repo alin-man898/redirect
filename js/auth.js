@@ -530,6 +530,36 @@
     }
   }
 
+  /* ====== 对外暴露：授权管理 API（供主程序「授权管理」模块调用，属既有能力的完善提升） ====== */
+  SYD.auth = {
+    isOwner: function () { var s = getSession(); return !!(s && s.role === "owner"); },
+    getCodes: function () {
+      var arr = loadGen(), revoked = [];
+      try { revoked = JSON.parse(localStorage.getItem(LKEY_REVOKE) || "[]"); } catch (e) {}
+      return arr.map(function (it) {
+        var expired = it.exp < Date.now();
+        var isRevoked = revoked.indexOf(it.raw) >= 0;
+        var status = isRevoked ? "revoked" : (expired ? "expired" : "active");
+        return { raw: it.raw, code: it.code, exp: it.exp, label: it.label || "", created: it.created, status: status };
+      });
+    },
+    revoke: function (raw) {
+      var rev = []; try { rev = JSON.parse(localStorage.getItem(LKEY_REVOKE) || "[]"); } catch (e) {}
+      if (rev.indexOf(raw) < 0) rev.push(raw);
+      try { localStorage.setItem(LKEY_REVOKE, JSON.stringify(rev)); } catch (e) {}
+      var arr = loadGen().filter(function (x) { return x.raw !== raw; });
+      saveGen(arr);
+      if (typeof renderList === "function") renderList();
+    },
+    extend: function (raw, extraDays) {
+      var arr = loadGen();
+      for (var i = 0; i < arr.length; i++) { if (arr[i].raw === raw) { arr[i].exp = arr[i].exp + extraDays * 86400000; break; } }
+      saveGen(arr);
+      if (typeof renderList === "function") renderList();
+    },
+    openManager: function () { requireOwner(openModal); }
+  };
+
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 })();
