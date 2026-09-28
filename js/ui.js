@@ -12,6 +12,14 @@
   function on(sel, ev, fn) { var e = view.querySelector(sel); if (e) e.addEventListener(ev, fn); }
   function onAll(sel, ev, fn) { view.querySelectorAll(sel).forEach(function (e) { e.addEventListener(ev, fn); }); }
   function esc(s) { return U.escapeHtml(s); }
+  // 复制到剪贴板（兼容无 navigator.clipboard 的环境）
+  function copyText(txt) {
+    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(txt).catch(function () {}); return; }
+    var ta = document.createElement("textarea"); ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); } catch (e) {}
+    document.body.removeChild(ta);
+  }
 
   // ---------- 文档上传通用：放开常用办公/图文/音视频格式，并按类型真实提取正文 ----------
   // 覆盖：PDF、Word(docx)、WPS、文本、表格、演示、常用图片、常用音视频
@@ -1503,6 +1511,208 @@
   function emptyCard(t, sub) { return "<div class='card'><div class='section-title'>" + t + "</div><div class='empty'>" + sub + "</div></div>"; }
 
   /* 模块空状态引导页：无投标项目时不再只显示一句话，而是完整展示模块能力与工作流，并提供直达新建按钮 */
+  // ================= 授权管理（到期自动失效 + 简易管理，对标：授权到期自动失效 + 管理员后台） =================
+  // 授权码过期校验已在 auth.js 强制（verifyCode 校验 payload.exp），本模块把它做成正式的一级管理页：
+  // 状态可视化（生效/过期/作废）+ 续期 + 作废 + 复制，并复用 auth.js 的签发弹窗。属既有能力的完善提升，不删固有。
+  function fmtRemainJs(ms) {
+    if (ms < 0) return "0";
+    var d = Math.floor(ms / 86400000), h = Math.floor((ms % 86400000) / 3600000), m = Math.floor((ms % 3600000) / 60000);
+    if (d > 0) return d + " 天 " + h + " 时";
+    if (h > 0) return h + " 时 " + m + " 分";
+    return m + " 分";
+  }
+  function renderAuthMgr() {
+    setView("授权管理");
+    if (!SYD.auth.isOwner()) {
+      view.innerHTML = "<div class='card'><div class='section-title'>授权管理</div>" +
+        "<div class='empty'>仅所有者（主密码登录）可管理授权码。当前为访客授权码登录态，请联系管理员用主密码进入后操作。</div></div>";
+      return;
+    }
+    var codes = SYD.auth.getCodes();
+    var html = "<div class='card'><div class='section-title'>授权码管理（到期自动失效）</div>";
+    html += "<div class='section-sub'>授权码含过期时间与 SHA-256 签名，他人粘贴后到期自动失效、无法伪造或篡改。下方可续期、作废；签发新码请在弹窗设置时长（1/7/30/90 天或自定义）。</div>";
+    html += "<div class='toolbar'><button class='btn-primary btn-sm' id='am-new'>＋ 生成新授权码</button></div>";
+    if (!codes.length) {
+      html += "<div class='empty'>还没有生成过授权码。点“生成新授权码”创建第一个。</div>";
+    } else {
+      html += "<table class='tbl'><tr><th>备注</th><th>状态</th><th>有效期至</th><th>剩余</th><th>操作</th></tr>";
+      codes.forEach(function (c) {
+        var stTxt = c.status === "active" ? "生效中" : (c.status === "expired" ? "已过期" : "已作废");
+        var expStr = new Date(c.exp).toLocaleString("zh-CN", { hour12: false });
+        var rem = c.status === "active" ? fmtRemainJs(c.exp - Date.now()) : "—";
+        html += "<tr><td>" + esc(c.label || "(无备注)") + "</td><td>" + stTxt + "</td><td>" + expStr + "</td><td>" + rem + "</td><td>";
+        if (c.status === "active") html += "<button class='btn-ghost btn-sm am-ext' data-raw='" + esc(c.raw) + "'>续期7天</button> ";
+        html += "<button class='btn-ghost btn-sm am-rev' data-raw='" + esc(c.raw) + "'" + (c.status === "revoked" ? " disabled" : "") + ">作废</button></td></tr>";
+      });
+      html += "</table>";
+    }
+    html += "</div>";
+    view.innerHTML = html;
+    on("#am-new", "click", function () { SYD.auth.openManager(); });
+    onAll(".am-ext", "click", function (e) { SYD.auth.extend(e.target.getAttribute("data-raw"), 7); SYD.ui.render("authmgr"); U.toast("已续期 7 天"); });
+    onAll(".am-rev", "click", function (e) { SYD.auth.revoke(e.target.getAttribute("data-raw")); SYD.ui.render("authmgr"); U.toast("已作废，该码立即失效"); });
+  }
+
+  // ================= 宣传资料对外一键调用（对标：宣传资料库 视频/技术方案/PPT 沉淀，对外一键调用） =================
+  // 纯函数：从图库 + 知识库汇集宣传素材，按类型分组生成对外取用清单文本
+  function buildPromoCatalog(items, projName) {
+    var t = "宣传资料对外取用清单\n";
+    if (projName) t += "关联项目：" + projName + "\n";
+    t += "生成时间：" + U.fmtDate() + "\n";
+    t += "资料共 " + items.length + " 项\n\n";
+    var groups = {};
+    items.forEach(function (it) { (groups[it.type] = groups[it.type] || []).push(it); });
+    Object.keys(groups).forEach(function (g) {
+      t += "【" + g + "】\n";
+      groups[g].forEach(function (it, i) { t += "  " + (i + 1) + ". " + it.name + (it.note ? "（" + it.note + "）" : "") + "\n"; });
+      t += "\n";
+    });
+    t += "—— 以上资料可向招标人/客户对外提供，详询孟凡林（鞍山星源达科技有限公司）。\n";
+    return t;
+  }
+  function renderPromo() {
+    setView("宣传资料对外调用");
+    var m = S.get().materials;
+    var imgs = (m.images || []).map(function (im) {
+      return { id: im.id, name: im.name || im.desc || "未命名图", note: im.desc || "", type: "图库图片", src: im.src };
+    });
+    var kbs = (m.knowledge || []).map(function (k) {
+      return { id: k.id, name: k.title || "未命名文档", note: (k.meta && k.meta.info) ? k.meta.info : "", type: (k.meta && k.meta.type) || "文档", src: null };
+    });
+    var all = imgs.concat(kbs);
+    var projOpts = "<option value=''>— 不关联具体项目 —</option>" + projects().map(function (p) {
+      return "<option value='" + esc(p.id) + "'>" + esc(p.name) + "</option>";
+    }).join("");
+    var html = "<div class='card'><div class='section-title'>宣传资料对外一键调用</div>";
+    html += "<div class='section-sub'>汇集视频、技术方案、PPT、产品图册等宣传素材，勾选本次要向客户/招标方呈现的资料，一键生成对外取用清单——可打印、导出 Word、复制后发给客户。每项均可在企业素材中预览/调用。</div>";
+    html += "<div><label>关联投标项目（可选）</label><select id='pr-proj'>" + projOpts + "</select></div>";
+    html += "<div class='card' style='margin-top:14px'><div class='section-title'>可选宣传素材（" + all.length + " 项）</div><div id='pr-list' class='list'>";
+    if (!all.length) {
+      html += "<div class='empty'>暂无素材，请先到「企业素材」上传图库或知识库文档。</div>";
+    } else {
+      all.forEach(function (it) {
+        html += "<div class='item'><label style='display:flex;gap:8px;align-items:flex-start;font-size:13px'><input type='checkbox' class='pr-cb' data-id='" + esc(it.id) + "' style='margin-top:3px'/><span><b>" + esc(it.name) + "</b> <span class='kb-lock-badge' style='background:#2a3a5a;color:#bcd'> " + esc(it.type) + " </span><div class='muted' style='font-size:11px'>" + esc(it.note || "") + "</div></span></label></div>";
+      });
+    }
+    html += "</div><div class='toolbar'><button class='btn-ghost btn-sm' id='pr-all'>全选</button><button class='btn-ghost btn-sm' id='pr-none'>清空</button><button class='btn-primary btn-sm' id='pr-gen'>一键生成对外取用清单</button></div></div>";
+    html += "<div class='card' id='pr-result-card' style='display:none'><div class='section-title'>对外取用清单</div><div id='pr-result' style='white-space:pre-wrap;min-height:80px;font-size:13px'></div><div class='toolbar'><button class='btn-ghost btn-sm' id='pr-print'>打印</button><button class='btn-ghost btn-sm' id='pr-doc'>导出Word</button><button class='btn-ghost btn-sm' id='pr-copy'>复制清单</button></div></div>";
+    view.innerHTML = html;
+    var lastText = "";
+    on("#pr-all", "click", function () { view.querySelectorAll(".pr-cb").forEach(function (cb) { cb.checked = true; }); });
+    on("#pr-none", "click", function () { view.querySelectorAll(".pr-cb").forEach(function (cb) { cb.checked = false; }); });
+    on("#pr-gen", "click", function () {
+      var sel = all.filter(function (it) { var cb = view.querySelector(".pr-cb[data-id='" + it.id + "']"); return cb && cb.checked; });
+      if (!sel.length) { U.toast("请至少勾选一项"); return; }
+      var projId = (document.getElementById("pr-proj") || {}).value || "";
+      var projName = "";
+      if (projId) { var p = projects().filter(function (x) { return x.id === projId; })[0]; if (p) projName = p.name; }
+      lastText = buildPromoCatalog(sel, projName);
+      document.getElementById("pr-result").textContent = lastText;
+      document.getElementById("pr-result-card").style.display = "";
+      U.toast("已生成对外取用清单（" + sel.length + " 项）");
+    });
+    on("#pr-print", "click", function () { if (!lastText) { U.toast("请先生成"); return; } printAttachment({ kind: "doc", title: "宣传资料对外取用清单", text: lastText, meta: { name: "宣传资料对外调用" } }); });
+    on("#pr-doc", "click", function () { if (!lastText) { U.toast("请先生成"); return; } U.downloadDoc("宣传资料对外取用清单.doc", "<h2 style='text-align:center'>宣传资料对外取用清单</h2><div style='white-space:pre-wrap'>" + esc(lastText) + "</div>"); });
+    on("#pr-copy", "click", function () { if (!lastText) { U.toast("请先生成"); return; } copyText(lastText); U.toast("清单已复制，可粘贴给客户"); });
+  }
+
+  // ================= 业务台账（对标：单据链式流转 报价→合同→发货→收货→财务） =================
+  function fmtMoney(n) {
+    n = Number(n) || 0;
+    return "¥" + n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function computeLedgerSummary(led) {
+    var contract = (led || []).filter(function (d) { return d.type === "合同"; });
+    var paid = (led || []).filter(function (d) { return d.type === "财务回款"; });
+    var contractTotal = contract.reduce(function (s, d) { return s + (Number(d.amount) || 0); }, 0);
+    var paidTotal = paid.reduce(function (s, d) { return s + (Number(d.amount) || 0); }, 0);
+    return { contractTotal: contractTotal, paidTotal: paidTotal, unpaidTotal: Math.max(contractTotal - paidTotal, 0), count: (led || []).length };
+  }
+  function ledgerEdit(editId) {
+    var led = S.get().ledger || [];
+    var d = editId ? led.filter(function (x) { return x.id === editId; })[0] : null;
+    var projOpts = "<option value=''>— 未关联 —</option>" + projects().map(function (p) {
+      return "<option value='" + esc(p.id) + "'" + (d && d.projectId === p.id ? " selected" : "") + ">" + esc(p.name) + "</option>";
+    }).join("");
+    var typeOpts = ["报价单", "合同", "发货单", "收货单", "财务回款"].map(function (t) {
+      return "<option" + (d && d.type === t ? " selected" : "") + ">" + t + "</option>";
+    }).join("");
+    var html = "<div class='card'><div class='section-title'>" + (d ? "编辑单据" : "新增单据") + "</div>";
+    html += "<div class='grid-2'>";
+    html += "<div><label>关联项目</label><select id='lg-project'>" + projOpts + "</select></div>";
+    html += "<div><label>单据类型</label><select id='lg-type'>" + typeOpts + "</select></div>";
+    html += "<div><label>单号</label><input id='lg-no' value='" + (d ? esc(d.no || "") : "") + "'/></div>";
+    html += "<div><label>日期</label><input id='lg-date' type='date' value='" + (d ? esc(d.date || "") : U.fmtDate()) + "'/></div>";
+    html += "<div><label>对方单位</label><input id='lg-party' value='" + (d ? esc(d.party || "") : "") + "'/></div>";
+    html += "<div><label>金额（元）</label><input id='lg-amount' type='number' step='0.01' value='" + (d ? (d.amount || 0) : "") + "'/></div>";
+    html += "<div><label>状态</label><input id='lg-status' value='" + (d ? esc(d.status || "") : "待处理") + "' placeholder='如 已签/已发货/已回款'/></div>";
+    html += "<div><label>备注</label><input id='lg-note' value='" + (d ? esc(d.note || "") : "") + "'/></div>";
+    html += "</div><div class='toolbar'><button class='btn-primary btn-sm' id='lg-save'>保存单据</button><button class='btn-ghost btn-sm' id='lg-cancel'>取消</button></div></div>";
+    var wrap = document.createElement("div");
+    wrap.innerHTML = html;
+    view.insertBefore(wrap, view.firstChild);
+    on("#lg-save", "click", function () {
+      var pid = document.getElementById("lg-project").value;
+      var pname = ""; if (pid) { var p = projects().filter(function (x) { return x.id === pid; })[0]; if (p) pname = p.name; }
+      var rec = {
+        id: d ? d.id : SYD.util.uid(), projectId: pid, projectName: pname,
+        type: document.getElementById("lg-type").value,
+        no: document.getElementById("lg-no").value.trim(),
+        date: document.getElementById("lg-date").value,
+        party: document.getElementById("lg-party").value.trim(),
+        amount: parseFloat(document.getElementById("lg-amount").value) || 0,
+        status: document.getElementById("lg-status").value.trim(),
+        note: document.getElementById("lg-note").value.trim()
+      };
+      var arr = S.get().ledger || [];
+      if (d) { arr = arr.map(function (x) { return x.id === rec.id ? rec : x; }); }
+      else { arr.unshift(rec); }
+      S.get().ledger = arr; save(); SYD.ui.render("ledger"); U.toast(d ? "已更新单据" : "已新增单据");
+    });
+    on("#lg-cancel", "click", function () { SYD.ui.render("ledger"); });
+  }
+  function renderLedger() {
+    setView("业务台账");
+    var led = S.get().ledger || [];
+    var types = ["报价单", "合同", "发货单", "收货单", "财务回款"];
+    var sum = computeLedgerSummary(led);
+    var html = "<div class='card'><div class='section-title'>业务台账 · 单据链式流转</div>";
+    html += "<div class='section-sub'>报价 → 合同 → 发货 → 收货 → 财务回款，按项目归集；录入各类单据后自动汇总合同额、已回款与未回款。</div>";
+    html += "<div class='grid-3'>";
+    html += "<div class='stat'><div class='num'>" + fmtMoney(sum.contractTotal) + "</div><div class='lab'>合同额合计</div></div>";
+    html += "<div class='stat' style='border-color:rgba(64,192,128,.4)'><div class='num' style='color:var(--ok)'>" + fmtMoney(sum.paidTotal) + "</div><div class='lab'>已回款合计</div></div>";
+    html += "<div class='stat' style='border-color:rgba(255,170,64,.4)'><div class='num' style='color:var(--warn)'>" + fmtMoney(sum.unpaidTotal) + "</div><div class='lab'>未回款合计</div></div>";
+    html += "</div>";
+    html += "<div class='toolbar'><button class='btn-primary btn-sm' id='lg-add'>＋ 新增单据</button></div>";
+    if (!led.length) {
+      html += "<div class='empty'>暂无单据。点“新增单据”录入第一张报价单 / 合同 / 发货 / 收货 / 回款。</div>";
+    } else {
+      html += "<table class='tbl'><tr><th>关联项目</th><th>类型</th><th>单号</th><th>日期</th><th>对方</th><th>金额</th><th>状态</th><th>备注</th><th>操作</th></tr>";
+      led.forEach(function (d) {
+        html += "<tr><td>" + esc(d.projectName || "—") + "</td><td>" + esc(d.type) + "</td><td>" + esc(d.no || "—") + "</td><td>" + esc(d.date || "—") + "</td><td>" + esc(d.party || "—") + "</td><td>" + fmtMoney(d.amount) + "</td><td>" + esc(d.status || "—") + "</td><td>" + esc(d.note || "") + "</td><td><button class='btn-danger btn-sm lg-del' data-id='" + esc(d.id) + "'>删除</button></td></tr>";
+      });
+      html += "</table>";
+      var byProj = {};
+      led.forEach(function (d) { var k = d.projectName || "(未关联)"; (byProj[k] = byProj[k] || []).push(d); });
+      html += "<div class='card' style='margin-top:14px'><div class='section-title'>按项目归集（单据链）</div>";
+      Object.keys(byProj).forEach(function (k) {
+        html += "<div class='item'><b>" + esc(k) + "</b>：";
+        html += types.map(function (t) { var n = byProj[k].filter(function (x) { return x.type === t; }).length; return t + " " + n; }).join(" → ");
+        html += "</div>";
+      });
+      html += "</div>";
+    }
+    html += "</div>";
+    view.innerHTML = html;
+    on("#lg-add", "click", function () { ledgerEdit(null); });
+    onAll(".lg-del", "click", function (e) {
+      var id = e.target.getAttribute("data-id");
+      confirmModal({ title: "删除单据", sub: "确认删除该单据？此操作不可恢复。", okText: "删除", onOk: function () {
+        S.get().ledger = (S.get().ledger || []).filter(function (x) { return x.id !== id; }); save(); SYD.ui.render("ledger"); U.toast("已删除");
+      } });
+    });
+  }
+
   function renderModuleEmpty(icon, name, intro, steps) {
     var h = "<div class='card' style='padding:26px 28px'>";
     h += "<div style='display:flex;align-items:center;gap:14px'>";
@@ -1526,7 +1736,8 @@
 
   var map = {
     dashboard: renderDashboard, plan: renderPlan, bid: renderBid, quote: renderQuote,
-    qc: renderQC, dup: renderDup, lib: renderLib, authz: renderAuthz, tmpl: renderTmpl, settings: renderSettings
+    qc: renderQC, dup: renderDup, lib: renderLib, authz: renderAuthz, tmpl: renderTmpl,
+    promo: renderPromo, ledger: renderLedger, authmgr: renderAuthMgr, settings: renderSettings
   };
   SYD.ui = {
     render: function (name) { (map[name] || map.dashboard)(); updateAIStatus(); },
@@ -1545,6 +1756,9 @@
     recommendTemplate: recommendTemplate,
     matchScoreItem: matchScoreItem,
     assembleBid: assembleBid,
+    // 暴露给全站调用与自测：宣传资料对外一键调用 + 业务台账
+    buildPromoCatalog: buildPromoCatalog,
+    computeLedgerSummary: computeLedgerSummary,
     // 暴露给全站调用与自测：附件预览 / 打印 / 自动识别再编辑
     openAttachmentViewer: openAttachmentViewer,
     printAttachment: printAttachment,
